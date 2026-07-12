@@ -7,9 +7,11 @@ from __future__ import annotations
 import pandas as pd
 
 from app.indicators.atr import ATR
+from app.indicators.bollinger_bands import BollingerBands
 from app.indicators.ema import EMA
 from app.indicators.macd import MACD
 from app.indicators.rsi import RSI
+from app.indicators.vwap import VWAP
 
 
 class IndicatorEngine:
@@ -26,6 +28,8 @@ class IndicatorEngine:
             RSI(14),
             MACD(),
             ATR(),
+            BollingerBands(),
+            VWAP(),
         ]
 
     def calculate(
