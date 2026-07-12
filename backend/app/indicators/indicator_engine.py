@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from app.indicators.atr import ATR
 from app.indicators.ema import EMA
 from app.indicators.macd import MACD
 from app.indicators.rsi import RSI
@@ -13,7 +14,7 @@ from app.indicators.rsi import RSI
 
 class IndicatorEngine:
     """
-    Central indicator engine.
+    Central indicator calculation engine.
     """
 
     def __init__(self):
@@ -24,6 +25,7 @@ class IndicatorEngine:
             EMA(200),
             RSI(14),
             MACD(),
+            ATR(),
         ]
 
     def calculate(
