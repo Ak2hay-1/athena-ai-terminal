@@ -1,3 +1,7 @@
+"""
+Database configuration.
+"""
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -5,11 +9,15 @@ from app.core.settings import settings
 
 engine = create_engine(
     settings.database_url,
-    echo=True
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
+    future=True,
 )
 
 SessionLocal = sessionmaker(
-    autocommit=False,
+    bind=engine,
     autoflush=False,
-    bind=engine
+    autocommit=False,
+    expire_on_commit=False,
 )
