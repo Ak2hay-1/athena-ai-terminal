@@ -1,33 +1,18 @@
 from fastapi import FastAPI
 
+from app.api.router import router
 from app.core.config import settings
+from app.core.logger import logger
+from app.database.database import engine
+from app.database.base import Base
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
 )
 
+app.include_router(router)
 
-@app.get("/")
-def root():
-    return {
-        "message": f"Welcome to {settings.APP_NAME}",
-        "version": settings.APP_VERSION,
-        "environment": settings.APP_ENV,
-    }
-
-
-@app.get("/health")
-def health():
-    return {
-        "status": "healthy"
-    }
-
-
-@app.get("/system")
-def system():
-    return {
-        "application": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "environment": settings.APP_ENV,
-    }
+logger.info("Athena AI Terminal Started")

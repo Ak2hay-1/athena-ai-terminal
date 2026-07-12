@@ -1,0 +1,64 @@
+
+services:
+
+  postgres:
+    image: postgres:16
+
+    container_name: athena-postgres
+
+    restart: unless-stopped
+
+    environment:
+
+      POSTGRES_USER: postgres
+
+      POSTGRES_PASSWORD: postgres
+
+      POSTGRES_DB: athena
+
+    ports:
+
+      - "5432:5432"
+
+    volumes:
+
+      - postgres-data:/var/lib/postgresql/data
+
+    healthcheck:
+
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+
+      interval: 10s
+
+      timeout: 5s
+
+      retries: 5
+
+
+  pgadmin:
+
+    image: dpage/pgadmin4
+
+    container_name: athena-pgadmin
+
+    restart: unless-stopped
+
+    environment:
+
+      PGADMIN_DEFAULT_EMAIL: admin@athena.ai
+
+      PGADMIN_DEFAULT_PASSWORD: admin123
+
+    ports:
+
+      - "5050:80"
+
+    depends_on:
+
+      postgres:
+
+        condition: service_healthy
+
+volumes:
+
+  postgres-data:
