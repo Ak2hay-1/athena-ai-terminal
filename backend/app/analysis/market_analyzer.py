@@ -10,11 +10,15 @@ import pandas as pd
 
 from app.analysis.momentum_analyzer import momentum_analyzer
 from app.analysis.trend_analyzer import trend_analyzer
+from app.analysis.volatility_analyzer import volatility_analyzer
 from app.indicators.indicator_engine import indicator_engine
 from app.patterns.pattern_engine import pattern_engine
 
 
 class MarketAnalyzer:
+    """
+    Central market analysis engine.
+    """
 
     def analyze(
         self,
@@ -32,30 +36,47 @@ class MarketAnalyzer:
 
         trend = trend_analyzer.analyze(df)
         momentum = momentum_analyzer.analyze(df)
+        volatility = volatility_analyzer.analyze(df)
 
         latest = df.iloc[-1]
 
         return {
+
             "symbol": dataframe.iloc[-1].get(
                 "symbol",
                 "UNKNOWN",
             ),
+
             "price": float(latest["close"]),
+
             "trend": trend,
+
             "momentum": momentum,
+
+            "volatility": volatility,
+
             "patterns": {
+
                 "bos": bool(latest.get("bos", False)),
+
                 "choch": bool(latest.get("choch", False)),
+
                 "fvg": bool(latest.get("fvg", False)),
+
                 "order_block": bool(
-                    latest.get("order_block", False)
+                    latest.get(
+                        "order_block",
+                        False,
+                    )
                 ),
+
                 "liquidity": bool(
                     latest.get(
                         "buy_side_liquidity",
                         False,
                     )
-                    or latest.get(
+                    or
+                    latest.get(
                         "sell_side_liquidity",
                         False,
                     )
