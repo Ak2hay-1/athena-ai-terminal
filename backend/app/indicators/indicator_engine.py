@@ -7,10 +7,14 @@ from __future__ import annotations
 import pandas as pd
 
 from app.indicators.ema import EMA
+from app.indicators.macd import MACD
 from app.indicators.rsi import RSI
 
 
 class IndicatorEngine:
+    """
+    Central indicator engine.
+    """
 
     def __init__(self):
 
@@ -19,6 +23,7 @@ class IndicatorEngine:
             EMA(50),
             EMA(200),
             RSI(14),
+            MACD(),
         ]
 
     def calculate(
@@ -29,7 +34,6 @@ class IndicatorEngine:
         df = dataframe.copy()
 
         for indicator in self.indicators:
-
             df = indicator.calculate(df)
 
         return df
