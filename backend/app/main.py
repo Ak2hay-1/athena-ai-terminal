@@ -1,18 +1,13 @@
 from fastapi import FastAPI
 
 from app.api.router import router
-from app.core.config import settings
-from app.core.logger import logger
-from app.database.database import engine
-from app.database.base import Base
-
-Base.metadata.create_all(bind=engine)
+from app.core.settings import settings
+from app.core.lifespan import lifespan
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
+    lifespan=lifespan,
 )
 
 app.include_router(router)
-
-logger.info("Athena AI Terminal Started")
