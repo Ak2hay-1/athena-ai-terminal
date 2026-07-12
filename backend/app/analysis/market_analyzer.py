@@ -1,13 +1,16 @@
 """
 Market Analyzer.
 
-Central analysis engine.
+Central market intelligence engine.
 """
 
 from __future__ import annotations
 
 import pandas as pd
 
+from app.analysis.confluence_analyzer import (
+    confluence_analyzer,
+)
 from app.analysis.market_structure_analyzer import (
     market_structure_analyzer,
 )
@@ -56,6 +59,15 @@ class MarketAnalyzer:
             market_structure_analyzer.analyze(df)
         )
 
+        confluence = (
+            confluence_analyzer.analyze(
+                trend=trend,
+                momentum=momentum,
+                volatility=volatility,
+                market_structure=structure,
+            )
+        )
+
         latest = df.iloc[-1]
 
         return {
@@ -74,6 +86,8 @@ class MarketAnalyzer:
             "volatility": volatility,
 
             "market_structure": structure,
+
+            "confluence": confluence,
         }
 
 
