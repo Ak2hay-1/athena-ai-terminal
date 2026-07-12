@@ -1,7 +1,3 @@
-"""
-Athena Terminal - Application Entry Point.
-"""
-
 from fastapi import FastAPI
 
 from app.api.router import router
@@ -10,8 +6,9 @@ from app.core.settings import settings
 from app.database.base import Base
 from app.database.database import engine
 
-# Import models so SQLAlchemy registers them
-from app.models import MarketCandle  # noqa: F401
+from app.models import MarketCandle
+
+from app.websocket.routes import router as websocket_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -22,13 +19,12 @@ app = FastAPI(
 )
 
 app.include_router(router)
+app.include_router(websocket_router)
 
 
 @app.get("/version", tags=["System"])
 def version():
-    """
-    Returns application version information.
-    """
+
     return {
         "application": settings.APP_NAME,
         "version": settings.APP_VERSION,
