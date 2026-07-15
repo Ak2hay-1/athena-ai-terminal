@@ -1,0 +1,43 @@
+# Python
+
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual Environment
+
+.venv/
+venv/
+
+# IDE
+
+.idea/
+.vscode/
+
+# Git
+
+.git/
+.gitignore
+
+# Pytest
+
+.pytest_cache/
+
+# Logs
+
+logs/
+*.log
+
+# Database
+
+*.db
+
+# Alembic cache
+
+alembic/__pycache__/
+
+# OS
+
+.DS_Store
+Thumbs.db

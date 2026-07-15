@@ -1,40 +1,102 @@
 """
-Application logging configuration.
+Athena Logger.
+
+Provides a centralized logger for the application.
 """
 
 from __future__ import annotations
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
+from app.core.settings import settings
+
+# ==========================================================
+# Configuration
+# ==========================================================
+
+LOG_FORMAT = (
+    "%(asctime)s | "
+    "%(levelname)-8s | "
+    "%(name)s | "
+    "%(message)s"
+)
+
+DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+log_file = Path(settings.LOG_FILE)
+log_file.parent.mkdir(parents=True, exist_ok=True)
+
+formatter = logging.Formatter(
+    fmt=LOG_FORMAT,
+    datefmt=DATE_FORMAT,
+)
+
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(formatter)
+
+file_handler = RotatingFileHandler(
+    filename=log_file,
+    maxBytes=10 * 1024 * 1024,
+    backupCount=10,
+    encoding="utf-8",
+)
+file_handler.setFormatter(formatter)
 
 
-LOGGER_NAME = "athena"
+# ==========================================================
+# Logger Factory
+# ==========================================================
+
+_configured = False
 
 
-def setup_logger() -> logging.Logger:
+def get_logger(name: str) -> logging.Logger:
     """
-    Configure and return the application logger.
+    Return a configured logger.
     """
 
-    logger = logging.getLogger(LOGGER_NAME)
+    global _configured
 
-    if logger.handlers:
-        return logger
+    logger = logging.getLogger(name)
 
-    logger.setLevel(logging.INFO)
+    if not _configured:
+        logger.setLevel(
+            getattr(
+                logging,
+                settings.LOG_LEVEL.upper(),
+                logging.INFO,
+            )
+        )
 
-    formatter = logging.Formatter(
-        fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+        if not logger.handlers:
+            logger.addHandler(console_handler)
+            logger.addHandler(file_handler)
 
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
+        logger.propagate = False
 
-    logger.addHandler(console_handler)
-    logger.propagate = False
+        logging.getLogger("sqlalchemy.engine").setLevel(
+            logging.WARNING
+        )
+
+        logging.getLogger("sqlalchemy.pool").setLevel(
+            logging.WARNING
+        )
+
+        logging.getLogger("uvicorn.access").setLevel(
+            logging.INFO
+        )
+
+        logging.getLogger("uvicorn.error").setLevel(
+            logging.INFO
+        )
+
+        _configured = True
 
     return logger
 
 
-logger = setup_logger()
+# Default application logger
+logger = get_logger("athena")

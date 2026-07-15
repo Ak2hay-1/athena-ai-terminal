@@ -1,0 +1,194 @@
+"""
+Market API.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from fastapi import APIRouter
+from fastapi import Depends
+from fastapi import Query
+from sqlalchemy.orm import Session
+
+from app.auth.dependencies import require_trader
+from app.database.database import get_db
+from app.models.user import User
+from app.schemas.market import (
+    MarketCandleCreate,
+    MarketCandleRead,
+    MarketHistoryRequest,
+    MarketStatistics,
+)
+from app.services.market_service import MarketService
+
+router = APIRouter(
+    prefix="/market",
+    tags=["Market"],
+)
+
+
+# ==========================================================
+# Dependency
+# ==========================================================
+
+def get_market_service(
+    db: Session = Depends(get_db),
+) -> MarketService:
+    """
+    Market service dependency.
+    """
+
+    return MarketService(db)
+
+
+# ==========================================================
+# Create Candle
+# ==========================================================
+
+@router.post(
+    "/candles",
+    response_model=MarketCandleRead,
+    summary="Create market candle",
+    status_code=201,
+)
+def create_candle(
+    payload: MarketCandleCreate,
+    _: User = Depends(require_trader),
+    service: MarketService = Depends(get_market_service),
+):
+
+    return service.create_candle(payload)
+
+
+# ==========================================================
+# Bulk Import
+# ==========================================================
+
+@router.post(
+    "/candles/bulk",
+    response_model=int,
+    summary="Bulk import candles",
+)
+def bulk_insert(
+    payload: list[MarketCandleCreate],
+    _: User = Depends(require_trader),
+    service: MarketService = Depends(get_market_service),
+):
+
+    return service.bulk_insert(payload)
+
+
+# ==========================================================
+# Latest Candle
+# ==========================================================
+
+@router.get(
+    "/latest",
+    response_model=MarketCandleRead,
+    summary="Latest candle",
+)
+def latest_candle(
+    symbol: str = Query(...),
+    timeframe: str = Query(...),
+    _: User = Depends(require_trader),
+    service: MarketService = Depends(get_market_service),
+):
+
+    return service.get_latest(
+        symbol,
+        timeframe,
+    )
+
+
+# ==========================================================
+# Latest Candles
+# ==========================================================
+
+@router.get(
+    "/candles",
+    response_model=list[MarketCandleRead],
+    summary="Latest candles",
+)
+def latest_candles(
+    symbol: str = Query(...),
+    timeframe: str = Query(...),
+    limit: int = Query(
+        default=500,
+        ge=1,
+        le=10000,
+    ),
+    _: User = Depends(require_trader),
+    service: MarketService = Depends(get_market_service),
+):
+
+    return service.get_latest_candles(
+        symbol,
+        timeframe,
+        limit,
+    )
+
+
+# ==========================================================
+# History
+# ==========================================================
+
+@router.post(
+    "/history",
+    response_model=list[MarketCandleRead],
+    summary="Historical candles",
+)
+def history(
+    payload: MarketHistoryRequest,
+    _: User = Depends(require_trader),
+    service: MarketService = Depends(get_market_service),
+):
+
+    return service.get_history(
+        payload.symbol,
+        payload.timeframe,
+        payload.start_time,
+        payload.end_time,
+    )
+
+
+# ==========================================================
+# Statistics
+# ==========================================================
+
+@router.get(
+    "/statistics",
+    response_model=MarketStatistics,
+    summary="Market statistics",
+)
+def statistics(
+    symbol: str = Query(...),
+    timeframe: str = Query(...),
+    _: User = Depends(require_trader),
+    service: MarketService = Depends(get_market_service),
+):
+
+    return service.get_statistics(
+        symbol,
+        timeframe,
+    )
+
+
+# ==========================================================
+# Cleanup
+# ==========================================================
+
+@router.delete(
+    "/cleanup",
+    response_model=int,
+    summary="Delete historical candles",
+)
+def cleanup(
+    before: datetime = Query(...),
+    _: User = Depends(require_trader),
+    service: MarketService = Depends(get_market_service),
+):
+
+    return service.delete_before(
+        before,
+    )

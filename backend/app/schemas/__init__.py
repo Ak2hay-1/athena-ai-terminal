@@ -1,7 +1,35 @@
-from app.schemas.market import CandleResponse
-from app.schemas.market import TickResponse
+"""
+Schema package exports.
+"""
+
+from app.schemas.market import (
+    LiveCandle,
+    MarketCandleCreate,
+    MarketCandleRead,
+    MarketCandleUpdate,
+    MarketHistoryRequest,
+    MarketQuery,
+    MarketStatistics,
+)
+
+from app.schemas.recommendation import (
+    RecommendationCreate,
+    RecommendationQuery,
+    RecommendationRead,
+)
 
 __all__ = [
-    "CandleResponse",
-    "TickResponse",
+    # Market
+    "MarketCandleCreate",
+    "MarketCandleRead",
+    "MarketCandleUpdate",
+    "MarketQuery",
+    "MarketHistoryRequest",
+    "MarketStatistics",
+    "LiveCandle",
+
+    # Recommendation
+    "RecommendationCreate",
+    "RecommendationQuery",
+    "RecommendationRead",
 ]

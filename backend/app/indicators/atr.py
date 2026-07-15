@@ -9,46 +9,47 @@ import pandas as pd
 from app.indicators.base_indicator import BaseIndicator
 
 
-class ATR(BaseIndicator):
+class ATRIndicator(BaseIndicator):
     """
-    Average True Range.
+    Average True Range (ATR 14)
     """
 
-    name = "ATR"
-
-    def __init__(self, period: int = 14):
-        self.period = period
+    PERIOD = 14
 
     def calculate(
         self,
-        data: pd.DataFrame,
+        dataframe: pd.DataFrame,
     ) -> pd.DataFrame:
 
-        df = data.copy()
+        df = dataframe.copy()
 
-        high_low = df["high"] - df["low"]
+        previous_close = df["close"].shift(1)
 
-        high_close = (
-            df["high"] - df["close"].shift()
+        tr1 = df["high"] - df["low"]
+
+        tr2 = (
+            df["high"] - previous_close
         ).abs()
 
-        low_close = (
-            df["low"] - df["close"].shift()
+        tr3 = (
+            df["low"] - previous_close
         ).abs()
 
-        true_range = pd.concat(
-            [
-                high_low,
-                high_close,
-                low_close,
-            ],
+        df["true_range"] = pd.concat(
+            [tr1, tr2, tr3],
             axis=1,
         ).max(axis=1)
 
-        df[f"atr_{self.period}"] = (
-            true_range
-            .rolling(self.period)
+        df["atr_14"] = (
+            df["true_range"]
+            .rolling(
+                self.PERIOD,
+                min_periods=self.PERIOD,
+            )
             .mean()
         )
 
         return df
+
+
+atr_indicator = ATRIndicator()

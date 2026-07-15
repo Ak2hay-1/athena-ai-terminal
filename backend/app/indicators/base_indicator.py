@@ -1,20 +1,26 @@
 """
-Base class for all indicators.
+Base Indicator.
 """
 
 from __future__ import annotations
 
+from abc import ABC
+from abc import abstractmethod
+
 import pandas as pd
 
 
-class BaseIndicator:
+class BaseIndicator(ABC):
+    """
+    Base class for all indicators.
+    """
 
-    name = "Base"
-
+    @abstractmethod
     def calculate(
         self,
-        data: pd.DataFrame,
+        dataframe: pd.DataFrame,
     ) -> pd.DataFrame:
-
+        """
+        Calculate indicator.
+        """
         raise NotImplementedError
-    

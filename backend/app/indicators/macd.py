@@ -1,5 +1,5 @@
 """
-Moving Average Convergence Divergence (MACD).
+MACD Indicator.
 """
 
 from __future__ import annotations
@@ -9,61 +9,63 @@ import pandas as pd
 from app.indicators.base_indicator import BaseIndicator
 
 
-class MACD(BaseIndicator):
+class MACDIndicator(BaseIndicator):
     """
-    MACD Indicator.
+    MACD 12/26/9
     """
-
-    name = "MACD"
-
-    def __init__(
-        self,
-        fast_period: int = 12,
-        slow_period: int = 26,
-        signal_period: int = 9,
-    ):
-        self.fast_period = fast_period
-        self.slow_period = slow_period
-        self.signal_period = signal_period
 
     def calculate(
         self,
-        data: pd.DataFrame,
+        dataframe: pd.DataFrame,
     ) -> pd.DataFrame:
 
-        df = data.copy()
+        df = dataframe.copy()
 
-        fast = (
+        ema12 = (
             df["close"]
             .ewm(
-                span=self.fast_period,
+                span=12,
                 adjust=False,
             )
             .mean()
         )
 
-        slow = (
+        ema26 = (
             df["close"]
             .ewm(
-                span=self.slow_period,
+                span=26,
                 adjust=False,
             )
             .mean()
         )
 
-        df["macd"] = fast - slow
+        df["macd"] = ema12 - ema26
 
         df["macd_signal"] = (
             df["macd"]
             .ewm(
-                span=self.signal_period,
+                span=9,
                 adjust=False,
             )
             .mean()
         )
 
         df["macd_histogram"] = (
-            df["macd"] - df["macd_signal"]
+            df["macd"] -
+            df["macd_signal"]
+        )
+
+        df["macd_bullish"] = (
+            df["macd"] >
+            df["macd_signal"]
+        )
+
+        df["macd_bearish"] = (
+            df["macd"] <
+            df["macd_signal"]
         )
 
         return df
+
+
+macd_indicator = MACDIndicator()

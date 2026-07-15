@@ -1,7 +1,15 @@
+version: "3.9"
+
+name: athena
 
 services:
 
+  # ==========================================================
+  # PostgreSQL
+  # ==========================================================
+
   postgres:
+
     image: postgres:16
 
     container_name: athena-postgres
@@ -10,11 +18,11 @@ services:
 
     environment:
 
+      POSTGRES_DB: athena
+
       POSTGRES_USER: postgres
 
       POSTGRES_PASSWORD: postgres
-
-      POSTGRES_DB: athena
 
     ports:
 
@@ -22,7 +30,7 @@ services:
 
     volumes:
 
-      - postgres-data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
 
     healthcheck:
 
@@ -34,24 +42,87 @@ services:
 
       retries: 5
 
+    networks:
 
-  pgadmin:
+      - athena-network
 
-    image: dpage/pgadmin4
+  # ==========================================================
+  # Redis
+  # ==========================================================
 
-    container_name: athena-pgadmin
+  redis:
+
+    image: redis:7-alpine
+
+    container_name: athena-redis
 
     restart: unless-stopped
 
-    environment:
+    ports:
 
-      PGADMIN_DEFAULT_EMAIL: admin@athena.ai
+      - "6379:6379"
 
-      PGADMIN_DEFAULT_PASSWORD: admin123
+    volumes:
+
+      - redis_data:/data
+
+    healthcheck:
+
+      test: ["CMD", "redis-cli", "ping"]
+
+      interval: 10s
+
+      timeout: 5s
+
+      retries: 5
+
+    networks:
+
+      - athena-network
+
+  # ==========================================================
+  # Ollama
+  # ==========================================================
+
+  ollama:
+
+    image: ollama/ollama:latest
+
+    container_name: athena-ollama
+
+    restart: unless-stopped
 
     ports:
 
-      - "5050:80"
+      - "11434:11434"
+
+    volumes:
+
+      - ollama_data:/root/.ollama
+
+    networks:
+
+      - athena-network
+
+  # ==========================================================
+  # FastAPI
+  # ==========================================================
+
+  api:
+
+    build:
+
+      context: ./backend
+
+      dockerfile: Dockerfile
+
+    container_name: athena-api
+
+    restart: unless-stopped
+
+    env_file:
+
+      - ./backend/.env
 
     depends_on:
 
@@ -59,6 +130,82 @@ services:
 
         condition: service_healthy
 
+      redis:
+
+        condition: service_healthy
+
+    ports:
+
+      - "8000:8000"
+
+    volumes:
+
+      - ./backend:/app
+
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+
+    networks:
+
+      - athena-network
+
+  # ==========================================================
+  # pgAdmin
+  # ==========================================================
+
+  pgadmin:
+
+    image: dpage/pgadmin4:latest
+
+    container_name: athena-pgadmin
+
+    restart: unless-stopped
+
+    environment:
+
+      PGADMIN_DEFAULT_EMAIL: admin@athena.local
+
+      PGADMIN_DEFAULT_PASSWORD: admin
+
+    ports:
+
+      - "5050:80"
+
+    depends_on:
+
+      - postgres
+
+    volumes:
+
+      - pgadmin_data:/var/lib/pgadmin
+
+    networks:
+
+      - athena-network
+
+# ==========================================================
+# Networks
+# ==========================================================
+
+networks:
+
+  athena-network:
+
+    driver: bridge
+
+# ==========================================================
+# Volumes
+# ==========================================================
+
 volumes:
 
-  postgres-data:
+  postgres_data:
+
+  redis_data:
+
+  ollama_data:
+
+  pgadmin_data:

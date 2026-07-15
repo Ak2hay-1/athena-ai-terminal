@@ -1,11 +1,7 @@
 """
 AI Response Parser.
 
-Responsible for:
-
-- Parsing Ollama responses
-- Validating JSON
-- Returning AIRecommendation
+Converts Ollama responses into validated AIRecommendation objects.
 """
 
 from __future__ import annotations
@@ -30,29 +26,49 @@ class ResponseParser:
 
         try:
 
+            if not response:
+                raise ValueError("Empty AI response.")
+
             data = json.loads(response)
 
-            recommendation = AIRecommendation.model_validate(
-                data
-            )
-
-            return recommendation
+            return AIRecommendation.model_validate(data)
 
         except json.JSONDecodeError as exc:
 
-            logger.exception(exc)
-
-            raise ValueError(
-                "AI returned invalid JSON."
-            ) from exc
+            logger.exception(
+                "Invalid JSON returned by AI: %s",
+                exc,
+            )
 
         except ValidationError as exc:
 
-            logger.exception(exc)
+            logger.exception(
+                "AI response validation failed: %s",
+                exc,
+            )
 
-            raise ValueError(
-                "AI response validation failed."
-            ) from exc
+        except Exception as exc:
+
+            logger.exception(
+                "Unexpected AI parser error: %s",
+                exc,
+            )
+
+        # --------------------------------------------------
+        # Safe fallback
+        # --------------------------------------------------
+
+        return AIRecommendation(
+            signal="HOLD",
+            confidence=0.0,
+            entry=0.0,
+            stop_loss=0.0,
+            take_profit=0.0,
+            risk_reward=0.0,
+            reason=[
+                "Unable to generate AI recommendation."
+            ],
+        )
 
 
 response_parser = ResponseParser()

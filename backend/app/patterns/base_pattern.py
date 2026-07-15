@@ -1,21 +1,31 @@
 """
-Base Pattern Class.
+Base Pattern.
+
+Every Smart Money Concept pattern inherits from this class.
 """
 
 from __future__ import annotations
 
+from abc import ABC
+from abc import abstractmethod
+
 import pandas as pd
 
 
-class BasePattern:
+class BasePattern(ABC):
     """
-    Base class for all market structure patterns.
+    Abstract base class for all market patterns.
     """
 
-    name = "Base Pattern"
-
+    @abstractmethod
     def detect(
         self,
-        data: pd.DataFrame,
+        dataframe: pd.DataFrame,
     ) -> pd.DataFrame:
+        """
+        Detect pattern.
+
+        Returns:
+            Updated DataFrame.
+        """
         raise NotImplementedError

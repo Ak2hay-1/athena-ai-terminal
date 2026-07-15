@@ -9,7 +9,13 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
-from app.services.market_service import MarketService
+from app.schemas.market import (
+    MarketCandleResponse,
+    MarketResponse,
+)
+from app.services.market_service import (
+    MarketService,
+)
 
 router = APIRouter(
     prefix="/market",
@@ -17,56 +23,44 @@ router = APIRouter(
 )
 
 
-@router.get("/symbols")
-def symbols(
-    db: Session = Depends(get_db),
-):
-    service = MarketService(db)
-    return service.symbols()
-
-
-@router.get("/tick/{symbol}")
-def tick(
+@router.get(
+    "/candles/{symbol}",
+    response_model=MarketResponse,
+)
+def latest_candles(
     symbol: str,
-    db: Session = Depends(get_db),
-):
-    service = MarketService(db)
-    return service.tick(symbol)
-
-
-@router.get("/candles/{symbol}")
-def candles(
-    symbol: str,
-    timeframe: str = "M5",
+    timeframe: str = "M1",
     limit: int = 500,
     db: Session = Depends(get_db),
 ):
+
     service = MarketService(db)
 
-    return service.latest(
+    candles = service.latest(
         symbol=symbol,
         timeframe=timeframe,
         limit=limit,
     )
 
-
-@router.post("/sync/{symbol}")
-def sync(
-    symbol: str,
-    timeframe: str = "M5",
-    count: int = 500,
-    db: Session = Depends(get_db),
-):
-    service = MarketService(db)
-
-    inserted = service.sync_candles(
-        symbol=symbol,
-        timeframe=timeframe,
-        count=count,
+    return MarketResponse(
+        success=True,
+        count=len(candles),
+        candles=[
+            MarketCandleResponse.model_validate(
+                candle
+            )
+            for candle in candles
+        ],
     )
 
+
+@router.get("/count")
+def candle_count(
+    db: Session = Depends(get_db),
+):
+
+    service = MarketService(db)
+
     return {
-        "symbol": symbol,
-        "timeframe": timeframe,
-        "inserted": inserted,
+        "count": service.count(),
     }

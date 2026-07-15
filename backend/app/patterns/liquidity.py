@@ -1,11 +1,5 @@
 """
-Liquidity Detection Engine.
-
-Detects:
-
-- Buy Side Liquidity
-- Sell Side Liquidity
-- Liquidity Sweeps
+Liquidity Detection.
 """
 
 from __future__ import annotations
@@ -17,75 +11,70 @@ from app.patterns.base_pattern import BasePattern
 
 class LiquiditySweep(BasePattern):
     """
-    Detect liquidity pools and sweeps.
+    Detect Equal Highs and Equal Lows.
     """
-
-    name = "Liquidity Sweep"
 
     def __init__(
         self,
-        tolerance: float = 0.10,
-    ):
+        tolerance: float = 0.0005,
+    ) -> None:
+
         self.tolerance = tolerance
 
     def detect(
         self,
-        data: pd.DataFrame,
+        dataframe: pd.DataFrame,
     ) -> pd.DataFrame:
 
-        df = data.copy()
+        df = dataframe.copy()
 
-        df["buy_side_liquidity"] = False
-        df["sell_side_liquidity"] = False
+        df["equal_high"] = False
+        df["equal_low"] = False
 
-        df["buy_side_sweep"] = False
-        df["sell_side_sweep"] = False
+        df["buy_liquidity"] = False
+        df["sell_liquidity"] = False
 
-        for i in range(2, len(df)):
+        for i in range(1, len(df)):
 
             previous = df.iloc[i - 1]
+
             current = df.iloc[i]
 
-            # --------------------------
-            # Buy Side Liquidity
-            # --------------------------
+            # Equal High
 
             if abs(
-                previous["high"] - current["high"]
+                current["high"] -
+                previous["high"]
             ) <= self.tolerance:
 
-                df.at[df.index[i], "buy_side_liquidity"] = True
+                df.at[
+                    df.index[i],
+                    "equal_high",
+                ] = True
 
-            # --------------------------
-            # Sell Side Liquidity
-            # --------------------------
+                df.at[
+                    df.index[i],
+                    "buy_liquidity",
+                ] = True
+
+            # Equal Low
 
             if abs(
-                previous["low"] - current["low"]
+                current["low"] -
+                previous["low"]
             ) <= self.tolerance:
 
-                df.at[df.index[i], "sell_side_liquidity"] = True
+                df.at[
+                    df.index[i],
+                    "equal_low",
+                ] = True
 
-            # --------------------------
-            # Buy Side Sweep
-            # --------------------------
-
-            if (
-                current["high"] > previous["high"]
-                and current["close"] < previous["high"]
-            ):
-
-                df.at[df.index[i], "buy_side_sweep"] = True
-
-            # --------------------------
-            # Sell Side Sweep
-            # --------------------------
-
-            if (
-                current["low"] < previous["low"]
-                and current["close"] > previous["low"]
-            ):
-
-                df.at[df.index[i], "sell_side_sweep"] = True
+                df.at[
+                    df.index[i],
+                    "sell_liquidity",
+                ] = True
 
         return df
+
+
+liquidity_sweep = LiquiditySweep()

@@ -1,15 +1,22 @@
 """
-Base model for all database tables.
+Base SQLAlchemy model for Athena.
+
+Provides:
+- Primary key
+- created_at
+- updated_at
+- to_dict()
+- update()
 """
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import DateTime
+from sqlalchemy import Integer
 from sqlalchemy import func
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 
@@ -18,15 +25,16 @@ from app.database.base import Base
 
 class BaseModel(Base):
     """
-    Base model inherited by every table.
+    Base model inherited by all database models.
     """
 
     __abstract__ = True
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(
+        Integer,
         primary_key=True,
-        default=uuid.uuid4,
+        autoincrement=True,
+        index=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -44,12 +52,39 @@ class BaseModel(Base):
 
     def to_dict(self) -> dict:
         """
-        Convert model to dictionary.
+        Convert SQLAlchemy model into dictionary.
         """
-        return {
-            column.name: getattr(self, column.name)
-            for column in self.__table__.columns
-        }
+
+        result: dict = {}
+
+        for column in self.__table__.columns:
+
+            value = getattr(self, column.name)
+
+            if isinstance(value, datetime):
+                value = value.isoformat()
+
+            elif isinstance(value, Decimal):
+                value = float(value)
+
+            result[column.name] = value
+
+        return result
+
+    def update(self, **kwargs) -> None:
+        """
+        Update model attributes.
+        """
+
+        for key, value in kwargs.items():
+
+            if hasattr(self, key):
+
+                setattr(self, key, value)
 
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__}(id={self.id})>"
+
+        return (
+            f"<{self.__class__.__name__}"
+            f"(id={self.id})>"
+        )

@@ -1,69 +1,102 @@
 """
-Custom exceptions used throughout the Athena application.
+Athena Custom Exceptions.
 """
 
 from __future__ import annotations
 
 
 class AthenaException(Exception):
-    """Base exception for Athena."""
+    """
+    Base application exception.
+    """
 
-    def __init__(self, message: str):
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 500,
+    ) -> None:
+
         self.message = message
+        self.status_code = status_code
+
         super().__init__(message)
 
 
-class ConfigurationException(AthenaException):
-    """Raised when application configuration is invalid."""
-
-
 class DatabaseException(AthenaException):
-    """Raised when a database operation fails."""
+    """
+    Database operation failed.
+    """
+
+    def __init__(
+        self,
+        message: str = "Database operation failed.",
+    ) -> None:
+
+        super().__init__(
+            message,
+            status_code=500,
+        )
 
 
-class MarketException(AthenaException):
-    """Raised when a market data operation fails."""
+class MT5Exception(AthenaException):
+    """
+    MetaTrader error.
+    """
 
+    def __init__(
+        self,
+        message: str = "MetaTrader connection failed.",
+    ) -> None:
 
-class MT5ConnectionException(MarketException):
-    """Raised when MetaTrader 5 connection fails."""
-
-
-class SymbolNotFoundException(MarketException):
-    """Raised when a trading symbol cannot be found."""
-
-
-class CandleDataException(MarketException):
-    """Raised when candle data cannot be retrieved."""
-
-
-class TickDataException(MarketException):
-    """Raised when tick data cannot be retrieved."""
-
-
-class IndicatorException(AthenaException):
-    """Raised when indicator calculation fails."""
-
-
-class PatternException(AthenaException):
-    """Raised when pattern detection fails."""
-
-
-class NewsException(AthenaException):
-    """Raised when news processing fails."""
+        super().__init__(
+            message,
+            status_code=503,
+        )
 
 
 class AIException(AthenaException):
-    """Raised when AI processing fails."""
+    """
+    AI processing failed.
+    """
 
+    def __init__(
+        self,
+        message: str = "AI processing failed.",
+    ) -> None:
 
-class TradingException(AthenaException):
-    """Raised when trading execution fails."""
-
-
-class RiskException(AthenaException):
-    """Raised when risk validation fails."""
+        super().__init__(
+            message,
+            status_code=500,
+        )
 
 
 class ValidationException(AthenaException):
-    """Raised when request validation fails."""
+    """
+    Business validation failed.
+    """
+
+    def __init__(
+        self,
+        message: str,
+    ) -> None:
+
+        super().__init__(
+            message,
+            status_code=400,
+        )
+
+
+class TradingException(AthenaException):
+    """
+    Trading execution failed.
+    """
+
+    def __init__(
+        self,
+        message: str,
+    ) -> None:
+
+        super().__init__(
+            message,
+            status_code=500,
+        )

@@ -9,35 +9,50 @@ import pandas as pd
 from app.indicators.base_indicator import BaseIndicator
 
 
-class RSI(BaseIndicator):
+class RSIIndicator(BaseIndicator):
     """
-    Relative Strength Index.
+    RSI (14).
     """
-
-    name = "RSI"
-
-    def __init__(self, period: int = 14):
-        self.period = period
 
     def calculate(
         self,
-        data: pd.DataFrame,
+        dataframe: pd.DataFrame,
     ) -> pd.DataFrame:
 
-        df = data.copy()
+        df = dataframe.copy()
 
         delta = df["close"].diff()
 
-        gain = delta.where(delta > 0, 0.0)
-        loss = -delta.where(delta < 0, 0.0)
+        gain = delta.clip(lower=0)
 
-        avg_gain = gain.rolling(self.period).mean()
-        avg_loss = loss.rolling(self.period).mean()
+        loss = -delta.clip(upper=0)
 
-        rs = avg_gain / avg_loss
+        avg_gain = gain.rolling(
+            window=14,
+            min_periods=14,
+        ).mean()
 
-        df[f"rsi_{self.period}"] = (
-            100 - (100 / (1 + rs))
+        avg_loss = loss.rolling(
+            window=14,
+            min_periods=14,
+        ).mean()
+
+        rs = avg_gain / avg_loss.replace(
+            0,
+            1e-10,
+        )
+
+        df["rsi_14"] = (
+            100 -
+            (
+                100 /
+                (
+                    1 + rs
+                )
+            )
         )
 
         return df
+
+
+rsi_indicator = RSIIndicator()

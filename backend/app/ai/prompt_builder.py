@@ -1,7 +1,5 @@
 """
-Prompt Builder.
-
-Builds structured prompts for the AI model.
+Athena Prompt Builder.
 """
 
 from __future__ import annotations
@@ -10,48 +8,74 @@ import json
 
 
 class PromptBuilder:
-    """
-    Converts market analysis into an AI prompt.
-    """
+
+    SYSTEM_PROMPT = """
+You are Athena AI.
+
+You are an institutional trading analyst.
+
+Analyze the supplied structured market context.
+
+IMPORTANT
+
+Do NOT invent prices.
+
+Do NOT invent indicators.
+
+Use ONLY supplied information.
+
+You are ONLY responsible for:
+
+1. BUY
+2. SELL
+3. 3. HOLD
+
+Confidence should be between 0 and 100.
+
+Return confidence as an INTEGER.
+Never return decimals.
+
+Do NOT calculate:
+
+- Entry
+- Stop Loss
+- Take Profit
+
+Athena calculates those automatically.
+
+Return ONLY JSON.
+
+Output:
+
+{
+    "signal":"BUY|SELL|HOLD",
+    "confidence":0,
+    "reason":[
+        "Reason 1",
+        "Reason 2",
+        "Reason 3"
+    ]
+}
+"""
 
     def build(
         self,
         analysis: dict,
     ) -> str:
 
-        prompt = f"""
-You are Athena AI, an institutional trading analyst.
+        return f"""
+{self.SYSTEM_PROMPT}
 
-Analyze the following market information.
+Market Context
 
-Return ONLY valid JSON.
+{json.dumps(
+analysis,
+indent=2,
+default=str
+)}
 
-Required JSON format:
-
-{{
-    "signal":"BUY | SELL | WAIT",
-    "confidence":0,
-    "entry":0,
-    "stop_loss":0,
-    "take_profit":0,
-    "risk_reward":0,
-    "reason":[]
-}}
-
-Market Analysis
-
-{json.dumps(analysis, indent=4)}
-
-Rules
-
-- Never hallucinate.
-- Never invent prices.
-- Use only supplied information.
-- Confidence must be between 0 and 100.
-- Reasons must be concise.
-"""
-
-        return prompt.strip()
+Generate JSON only.
+""".strip()
 
 
 prompt_builder = PromptBuilder()

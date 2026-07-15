@@ -1,16 +1,5 @@
 """
-Institutional Order Block Detector.
-
-Current Version:
-- Bullish Order Blocks
-- Bearish Order Blocks
-- BOS confirmation
-
-Future Versions:
-- Volume confirmation
-- Mitigation tracking
-- Strength score
-- Multi-timeframe confirmation
+Order Block Detection.
 """
 
 from __future__ import annotations
@@ -18,60 +7,91 @@ from __future__ import annotations
 import pandas as pd
 
 from app.patterns.base_pattern import BasePattern
+from app.patterns.break_of_structure import break_of_structure
 
 
 class OrderBlock(BasePattern):
     """
-    Detect bullish and bearish order blocks.
-    """
+    Detect Bullish and Bearish Order Blocks.
 
-    name = "Order Block"
+    Rule:
+    - Bullish OB:
+        Last bearish candle before Bullish BOS
+
+    - Bearish OB:
+        Last bullish candle before Bearish BOS
+    """
 
     def detect(
         self,
-        data: pd.DataFrame,
+        dataframe: pd.DataFrame,
     ) -> pd.DataFrame:
 
-        df = data.copy()
+        df = break_of_structure.detect(dataframe)
 
         df["order_block"] = False
-        df["order_block_type"] = ""
-        df["order_block_high"] = None
-        df["order_block_low"] = None
+        df["ob_direction"] = None
+        df["ob_high"] = None
+        df["ob_low"] = None
 
-        if "bos_direction" not in df.columns:
-            return df
+        for i in range(1, len(df)):
 
-        for i in range(1, len(df) - 1):
+            if not df.iloc[i]["bos"]:
+                continue
 
             previous = df.iloc[i - 1]
-            current = df.iloc[i]
-            nxt = df.iloc[i + 1]
 
-            # -----------------------------
+            direction = df.iloc[i]["bos_direction"]
+
             # Bullish Order Block
-            # -----------------------------
+
             if (
-                previous["close"] < previous["open"]
-                and nxt["bos_direction"] == "bullish"
+                direction == "bullish"
+                and previous["close"] < previous["open"]
             ):
 
-                df.at[df.index[i], "order_block"] = True
-                df.at[df.index[i], "order_block_type"] = "bullish"
-                df.at[df.index[i], "order_block_high"] = previous["high"]
-                df.at[df.index[i], "order_block_low"] = previous["low"]
+                df.at[df.index[i - 1], "order_block"] = True
 
-            # -----------------------------
+                df.at[
+                    df.index[i - 1],
+                    "ob_direction",
+                ] = "bullish"
+
+                df.at[
+                    df.index[i - 1],
+                    "ob_high",
+                ] = previous["high"]
+
+                df.at[
+                    df.index[i - 1],
+                    "ob_low",
+                ] = previous["low"]
+
             # Bearish Order Block
-            # -----------------------------
+
             elif (
-                previous["close"] > previous["open"]
-                and nxt["bos_direction"] == "bearish"
+                direction == "bearish"
+                and previous["close"] > previous["open"]
             ):
 
-                df.at[df.index[i], "order_block"] = True
-                df.at[df.index[i], "order_block_type"] = "bearish"
-                df.at[df.index[i], "order_block_high"] = previous["high"]
-                df.at[df.index[i], "order_block_low"] = previous["low"]
+                df.at[df.index[i - 1], "order_block"] = True
+
+                df.at[
+                    df.index[i - 1],
+                    "ob_direction",
+                ] = "bearish"
+
+                df.at[
+                    df.index[i - 1],
+                    "ob_high",
+                ] = previous["high"]
+
+                df.at[
+                    df.index[i - 1],
+                    "ob_low",
+                ] = previous["low"]
 
         return df
+
+
+order_block = OrderBlock()

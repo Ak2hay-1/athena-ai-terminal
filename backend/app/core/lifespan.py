@@ -1,5 +1,5 @@
 """
-Application lifespan management.
+FastAPI Lifespan.
 """
 
 from __future__ import annotations
@@ -9,41 +9,64 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.logger import logger
-from app.market.client import client
-from app.services.market_scheduler import scheduler
+from app.mt5.client import mt5_client
+from app.scheduler.market_scheduler import (
+    market_scheduler,
+)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(
+    app: FastAPI,
+):
     """
-    Application startup and shutdown.
+    Application lifecycle.
     """
 
     logger.info("=" * 80)
     logger.info("Starting Athena Terminal")
     logger.info("=" * 80)
 
-    # Initialize MT5
-    if client.connect():
-        logger.info("MetaTrader 5 connected successfully.")
+    # -------------------------------------------------
+    # MT5
+    # -------------------------------------------------
+
+    if mt5_client.initialize():
+
+        logger.info(
+            "MetaTrader 5 connected successfully."
+        )
+
     else:
-        logger.warning("MetaTrader 5 connection failed.")
 
-    # Start background services
-    scheduler.start()
+        logger.warning(
+            "MetaTrader 5 connection failed."
+        )
 
-    logger.info("Background scheduler started.")
-    logger.info("Athena Terminal is ready.")
+    # -------------------------------------------------
+    # Scheduler
+    # -------------------------------------------------
+
+    market_scheduler.start()
+
+    logger.info(
+        "Athena Terminal is ready."
+    )
 
     yield
 
-    logger.info("=" * 80)
-    logger.info("Stopping Athena Terminal")
+    # -------------------------------------------------
+    # Shutdown
+    # -------------------------------------------------
 
-    scheduler.stop()
-    client.shutdown()
+    logger.info(
+        "Stopping Athena Terminal..."
+    )
 
-    logger.info("Background scheduler stopped.")
-    logger.info("MetaTrader 5 disconnected.")
-    logger.info("Athena Terminal stopped.")
-    logger.info("=" * 80)
+    market_scheduler.stop()
+
+    mt5_client.shutdown()
+
+    logger.info(
+        "Athena stopped successfully."
+    )
