@@ -5,6 +5,7 @@ Ollama Client.
 from __future__ import annotations
 
 import json
+import time
 
 import requests
 
@@ -27,52 +28,60 @@ class OllamaClient:
     ) -> str:
         """
         Send a prompt to Ollama and return the generated response.
-
-        Always returns a JSON string so the ResponseParser
-        receives a predictable payload.
         """
 
-        try:
-            response = requests.post(
-                f"{self.base_url}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                },
-                timeout=settings.OLLAMA_TIMEOUT,
-            )
+        last_error: Exception | None = None
 
-            response.raise_for_status()
+        for attempt in range(1, settings.OLLAMA_MAX_RETRIES + 1):
 
-            data = response.json()
+            try:
+                response = requests.post(
+                    f"{self.base_url}/api/generate",
+                    json={
+                        "model": self.model,
+                        "prompt": prompt,
+                        "stream": False,
+                    },
+                    timeout=settings.OLLAMA_TIMEOUT,
+                )
 
-            result = data.get("response", "")
+                response.raise_for_status()
 
-            if not result:
-                raise ValueError("Empty response received from Ollama.")
+                data = response.json()
 
-            return result
+                result = data.get("response", "")
 
-        except Exception as exc:
-            logger.exception("Ollama request failed: %s", exc)
+                if not result:
+                    raise ValueError(
+                        "Empty response received from Ollama."
+                    )
 
-            # Return a valid AIRecommendation JSON so the
-            # parser doesn't crash with ValidationError.
-            fallback = {
-                "signal": "HOLD",
-                "confidence": 0.0,
-                "entry": 0.0,
-                "stop_loss": 0.0,
-                "take_profit": 0.0,
-                "risk_reward": 0.0,
-                "reason": [
-                    "Ollama is unavailable.",
-                    str(exc),
-                ],
-            }
+                return result
 
-            return json.dumps(fallback)
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Ollama attempt %d failed: %s",
+                    attempt,
+                    exc,
+                )
+                time.sleep(min(attempt * 2, 5))
+
+        logger.exception(
+            "Ollama request failed after retries: %s",
+            last_error,
+        )
+
+        fallback = {
+            "signal": "HOLD",
+            "confidence": 0,
+            "reason": [
+                "Ollama is unavailable.",
+                str(last_error),
+            ],
+        }
+
+        return json.dumps(fallback)
 
 
 ollama_client = OllamaClient()

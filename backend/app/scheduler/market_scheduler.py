@@ -1,7 +1,7 @@
 """
 Market Scheduler.
 
-Runs periodic market data collection jobs.
+Runs periodic market data collection jobs for all configured pairs.
 """
 
 from __future__ import annotations
@@ -10,18 +10,25 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.logger import logger
 from app.core.settings import settings
-from app.database.session import SessionLocal
+from app.database.database import SessionLocal
 from app.mt5.candle_collector import CandleCollector
 from app.services.market_service import MarketService
+from app.services.websocket_broadcast import broadcast_candle_update
 
 
 class MarketScheduler:
 
     def __init__(self) -> None:
 
-        self.scheduler = BackgroundScheduler()
+        self.scheduler = BackgroundScheduler(
+            timezone=settings.SCHEDULER_TIMEZONE,
+        )
 
-    def collect_xauusd_m1(self) -> None:
+    def collect_pair(
+        self,
+        symbol: str,
+        timeframe: str,
+    ) -> None:
 
         db = SessionLocal()
 
@@ -31,22 +38,32 @@ class MarketScheduler:
 
             market_service = MarketService(db)
 
-            for symbol in settings.MARKET_SYMBOLS:
+            inserted = collector.collect(
+                symbol,
+                timeframe,
+            )
 
-                inserted = collector.collect_m1(symbol)
+            if inserted <= 0:
+                return
 
-                if inserted <= 0:
-                    continue
+            recommendation = market_service.analyze_latest(
+                symbol=symbol,
+                timeframe=timeframe,
+            )
 
-                market_service.analyze_latest(
-                    symbol=symbol,
-                    timeframe="M1",
-                )
+            broadcast_candle_update(
+                symbol=symbol,
+                timeframe=timeframe,
+                inserted=inserted,
+                recommendation=recommendation,
+            )
 
         except Exception:
 
             logger.exception(
-                "Market data collection failed."
+                "Collection failed for %s %s",
+                symbol,
+                timeframe,
             )
 
         finally:
@@ -55,21 +72,62 @@ class MarketScheduler:
 
     def start(self) -> None:
 
-        self.scheduler.add_job(
-            self.collect_xauusd_m1,
-            trigger="interval",
-            seconds=60,
-            id="xauusd_m1",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
+        scheduled: set[str] = set()
+
+        for timeframe in settings.MARKET_TIMEFRAMES:
+
+            interval = settings.COLLECTOR_INTERVALS.get(
+                timeframe,
+                settings.COLLECTOR_INTERVAL_SECONDS,
+            )
+
+            job_id = f"collect_{timeframe.lower()}"
+
+            if job_id in scheduled:
+                continue
+
+            scheduled.add(job_id)
+
+            self.scheduler.add_job(
+                self._run_timeframe,
+                trigger="interval",
+                seconds=interval,
+                id=job_id,
+                kwargs={"timeframe": timeframe},
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
 
         self.scheduler.start()
 
         logger.info(
-            "Market Scheduler Started"
+            "Market Scheduler started for %d symbols x %d timeframes",
+            len(settings.MARKET_SYMBOLS),
+            len(settings.MARKET_TIMEFRAMES),
         )
+
+    def _run_timeframe(
+        self,
+        timeframe: str,
+    ) -> None:
+
+        for symbol in settings.MARKET_SYMBOLS:
+
+            try:
+
+                self.collect_pair(
+                    symbol,
+                    timeframe,
+                )
+
+            except Exception:
+
+                logger.exception(
+                    "Isolated failure %s %s",
+                    symbol,
+                    timeframe,
+                )
 
     def shutdown(self) -> None:
 
@@ -80,7 +138,7 @@ class MarketScheduler:
             )
 
             logger.info(
-                "Market Scheduler Stopped"
+                "Market Scheduler stopped"
             )
 
 

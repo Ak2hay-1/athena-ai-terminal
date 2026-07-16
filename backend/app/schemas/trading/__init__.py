@@ -1,78 +1,37 @@
 """
-Trading schemas.
-
-This package contains all request, response and domain models
-used by the Trading module.
-
-Modules
--------
-enums
-    Trading enumerations.
-
-account
-    Trading account schemas.
-
-order
-    Order schemas.
-
-position
-    Position schemas.
-
-request
-    Trading request schemas.
-
-response
-    Trading response schemas.
-
-execution
-    Execution result schemas.
+Trading schemas package exports.
 """
 
-from app.schemas.trading.account import TradingAccount
-from app.schemas.trading.enums import (
-    ExecutionMode,
-    OrderSide,
-    OrderStatus,
-    OrderType,
-    PositionStatus,
-    TradeStatus,
-)
-from app.schemas.trading.execution import ExecutionResult
-from app.schemas.trading.order import Order
-from app.schemas.trading.position import Position
-from app.schemas.trading.request import (
-    CancelOrderRequest,
-    ClosePositionRequest,
-    ModifyPositionRequest,
-    TradeRequest,
-)
-from app.schemas.trading.response import (
-    OrderResult,
-    TradeResult,
-)
+from app.schemas.trading.account import TradeAccount
+from app.schemas.trading.account import TradeAccount as TradingAccount
+from app.schemas.trading.enums import ExecutionMode
+from app.schemas.trading.enums import OrderSide
+from app.schemas.trading.enums import OrderStatus
+from app.schemas.trading.enums import OrderType
+from app.schemas.trading.enums import PositionStatus
+from app.schemas.trading.enums import TradeStatus
+from app.schemas.trading.order import TradeOrder
+from app.schemas.trading.position import TradePosition
+from app.schemas.trading.request import CancelOrderRequest
+from app.schemas.trading.request import ClosePositionRequest
+from app.schemas.trading.request import TradeRequest
+from app.schemas.trading.response import OrderResult
+from app.schemas.trading.response import TradeResult
 
 __all__ = [
-    # Enums
     "ExecutionMode",
     "OrderSide",
     "OrderType",
     "OrderStatus",
     "PositionStatus",
     "TradeStatus",
-
-    # Models
     "TradingAccount",
-    "Order",
-    "Position",
-
-    # Requests
+    "TradeAccount",
+    "TradeOrder",
+    "TradePosition",
     "TradeRequest",
-    "ModifyPositionRequest",
     "ClosePositionRequest",
     "CancelOrderRequest",
-
-    # Responses
     "TradeResult",
     "OrderResult",
-    "ExecutionResult",
 ]

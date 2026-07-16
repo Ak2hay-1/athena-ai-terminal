@@ -38,6 +38,20 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # ==========================================================
+    # Authentication
+    # ==========================================================
+
+    SECRET_KEY: str = Field(
+        default="dev-secret-change-in-production",
+    )
+
+    ALGORITHM: str = "HS256"
+
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # ==========================================================
     # Database
     # ==========================================================
 
@@ -69,13 +83,50 @@ class Settings(BaseSettings):
 
     DEFAULT_TIMEFRAME: str = "M1"
 
-    MARKET_SYMBOLS: list[str] = [
-        "XAUUSD",
-    ]
+    MARKET_SYMBOLS: list[str] = Field(
+        default_factory=lambda: [
+            "XAUUSD",
+            "EURUSD",
+            "GBPUSD",
+            "USDJPY",
+            "AUDUSD",
+            "USDCAD",
+            "NZDUSD",
+            "USDCHF",
+        ],
+    )
 
-    MARKET_TIMEFRAMES: list[str] = [
-        "M1",
-    ]
+    MARKET_TIMEFRAMES: list[str] = Field(
+        default_factory=lambda: [
+            "M1",
+            "M5",
+            "M15",
+        ],
+    )
+
+    COLLECTOR_INTERVALS: dict[str, int] = Field(
+        default_factory=lambda: {
+            "M1": 60,
+            "M5": 300,
+            "M15": 900,
+            "M30": 1800,
+            "H1": 3600,
+            "H4": 14400,
+            "D1": 86400,
+        },
+    )
+
+    MULTI_TF_CONTEXT: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "M1": ["M5", "M15"],
+            "M5": ["M15", "H1"],
+            "M15": ["H1", "H4"],
+            "M30": ["H1", "H4"],
+            "H1": ["H4", "D1"],
+            "H4": ["D1"],
+            "D1": [],
+        },
+    )
 
     # ==========================================================
     # Ollama
@@ -87,6 +138,8 @@ class Settings(BaseSettings):
 
     OLLAMA_TIMEOUT: int = 300
 
+    OLLAMA_MAX_RETRIES: int = 3
+
     # ==========================================================
     # Scheduler
     # ==========================================================
@@ -94,6 +147,38 @@ class Settings(BaseSettings):
     SCHEDULER_TIMEZONE: str = "Asia/Kolkata"
 
     COLLECTOR_INTERVAL_SECONDS: int = 60
+
+    # ==========================================================
+    # News
+    # ==========================================================
+
+    NEWS_API_KEY: str = ""
+
+    NEWS_SYNC_INTERVAL: int = 900
+
+    NEWS_BLOCK_MINUTES: int = 30
+
+    NEWS_SENTIMENT_WEIGHT: int = 15
+
+    NEWS_RSS_FEEDS: list[str] = Field(
+        default_factory=lambda: [
+            "https://www.forexfactory.com/ffcal_week_this.xml",
+        ],
+    )
+
+    # ==========================================================
+    # Learning
+    # ==========================================================
+
+    LEARNING_ENABLED: bool = True
+
+    LEARNING_MIN_SAMPLES: int = 50
+
+    LEARNING_RETRAIN_INTERVAL_HOURS: int = 168
+
+    LEARNING_MODEL_PATH: str = "storage/learning"
+
+    LEARNING_OUTCOME_HORIZON_CANDLES: int = 10
 
     # ==========================================================
     # Logging
@@ -143,10 +228,12 @@ class Settings(BaseSettings):
     # CORS
     # ==========================================================
 
-    BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-    ]
+    BACKEND_CORS_ORIGINS: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://localhost:5173",
+        ],
+    )
 
 
 @lru_cache

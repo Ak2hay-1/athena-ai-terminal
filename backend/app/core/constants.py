@@ -13,6 +13,10 @@ SUPPORTED_SYMBOLS = [
     "EURUSD",
     "GBPUSD",
     "USDJPY",
+    "AUDUSD",
+    "USDCAD",
+    "NZDUSD",
+    "USDCHF",
     "BTCUSD",
     "ETHUSD",
 ]

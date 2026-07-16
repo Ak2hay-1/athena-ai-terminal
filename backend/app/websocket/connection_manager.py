@@ -83,38 +83,66 @@ class ConnectionManager:
     # -------------------------------------------------
 
     async def subscribe(
-
         self,
-
         websocket: WebSocket,
-
         symbol: str,
-
+        timeframe: str | None = None,
     ):
+
+        channel = (
+            f"{symbol.upper()}:{timeframe.upper()}"
+            if timeframe
+            else symbol.upper()
+        )
 
         async with self._lock:
 
-            self.subscriptions[
-                symbol.upper()
-            ].add(websocket)
-
-    # -------------------------------------------------
+            self.subscriptions[channel].add(websocket)
 
     async def unsubscribe(
-
         self,
-
         websocket: WebSocket,
-
         symbol: str,
-
+        timeframe: str | None = None,
     ):
+
+        channel = (
+            f"{symbol.upper()}:{timeframe.upper()}"
+            if timeframe
+            else symbol.upper()
+        )
 
         async with self._lock:
 
-            self.subscriptions[
-                symbol.upper()
-            ].discard(websocket)
+            self.subscriptions[channel].discard(websocket)
+
+    async def broadcast_channel(
+        self,
+        channel: str,
+        payload: dict,
+    ):
+
+        clients = self.subscriptions.get(
+            channel.upper(),
+            set(),
+        )
+
+        for websocket in list(clients):
+
+            await self.send(
+                websocket,
+                payload,
+            )
+
+        if clients:
+            return
+
+        symbol = channel.split(":")[0]
+
+        await self.broadcast_symbol(
+            symbol,
+            payload,
+        )
 
     # -------------------------------------------------
 

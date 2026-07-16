@@ -1,53 +1,17 @@
 """
 Database Session Management.
 
-Provides SQLAlchemy sessions for:
-- FastAPI
-- Background Jobs
-- Scheduler
-- Services
+Re-exports the canonical session factory from database.py.
 """
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from app.database.database import SessionLocal
+from app.database.database import get_db
+from app.database.database import get_session
 
-from sqlalchemy.orm import Session
-from sqlalchemy.orm import sessionmaker
-
-from app.database.database import engine
-
-
-SessionLocal = sessionmaker(
-    bind=engine,
-    autoflush=False,
-    autocommit=False,
-    expire_on_commit=False,
-)
-
-
-def get_db() -> Generator[Session, None, None]:
-    """
-    FastAPI dependency.
-
-    Example:
-
-        db: Session = Depends(get_db)
-    """
-
-    db = SessionLocal()
-
-    try:
-        yield db
-
-        db.commit()
-
-    except Exception:
-
-        db.rollback()
-
-        raise
-
-    finally:
-
-        db.close()
+__all__ = [
+    "SessionLocal",
+    "get_db",
+    "get_session",
+]

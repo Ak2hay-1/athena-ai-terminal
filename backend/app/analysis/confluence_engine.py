@@ -9,146 +9,81 @@ from __future__ import annotations
 
 import pandas as pd
 
+from app.core.settings import settings
+
 
 class ConfluenceEngine:
 
     def analyze(
         self,
         dataframe: pd.DataFrame,
+        *,
+        news_context: dict | None = None,
+        weights: dict[str, float] | None = None,
     ) -> dict:
 
         latest = dataframe.iloc[-1]
-
-        score = 0
-
+        weights = weights or {}
+        score = 0.0
         reasons: list[str] = []
 
-        # ==========================================
-        # EMA
-        # ==========================================
+        def add(points: float, reason: str, key: str) -> None:
+            nonlocal score
+            multiplier = weights.get(key, 1.0)
+            score += points * multiplier
+            reasons.append(reason)
 
         if latest["ema_9"] > latest["ema_20"]:
-
-            score += 10
-
-            reasons.append(
-                "EMA9 above EMA20"
-            )
+            add(10, "EMA9 above EMA20", "ema")
 
         if latest["ema_20"] > latest["ema_50"]:
-
-            score += 10
-
-            reasons.append(
-                "EMA20 above EMA50"
-            )
-
-        # ==========================================
-        # RSI
-        # ==========================================
+            add(10, "EMA20 above EMA50", "ema")
 
         if 50 <= latest["rsi_14"] <= 70:
-
-            score += 10
-
-            reasons.append(
-                "Healthy bullish RSI"
-            )
-
+            add(10, "Healthy bullish RSI", "rsi")
         elif 30 <= latest["rsi_14"] <= 50:
-
-            score -= 10
-
-            reasons.append(
-                "Weak RSI"
-            )
-
-        # ==========================================
-        # MACD
-        # ==========================================
+            add(-10, "Weak RSI", "rsi")
 
         if latest["macd_bullish"]:
-
-            score += 10
-
-            reasons.append(
-                "Bullish MACD"
-            )
-
+            add(10, "Bullish MACD", "macd")
         else:
-
-            score -= 10
-
-            reasons.append(
-                "Bearish MACD"
-            )
-
-        # ==========================================
-        # BOS
-        # ==========================================
+            add(-10, "Bearish MACD", "macd")
 
         if latest.get("bos"):
-
-            score += 20
-
-            reasons.append(
-                f"BOS {latest['bos_direction']}"
-            )
-
-        # ==========================================
-        # CHOCH
-        # ==========================================
+            add(20, f"BOS {latest['bos_direction']}", "bos")
 
         if latest.get("choch"):
-
-            score += 15
-
-            reasons.append(
-                f"CHOCH {latest['choch_direction']}"
-            )
-
-        # ==========================================
-        # FVG
-        # ==========================================
+            add(15, f"CHOCH {latest['choch_direction']}", "choch")
 
         if latest.get("fvg"):
-
-            score += 10
-
-            reasons.append(
-                "Fair Value Gap"
-            )
-
-        # ==========================================
-        # Order Block
-        # ==========================================
+            add(10, "Fair Value Gap", "fvg")
 
         if latest.get("order_block"):
+            add(15, "Order Block", "order_block")
 
-            score += 15
-
+        if news_context:
+            news_score = news_context.get("score", 0)
+            weighted = news_score * (
+                settings.NEWS_SENTIMENT_WEIGHT / 10
+            ) * weights.get("news", 1.0)
+            score += weighted
             reasons.append(
-                "Order Block"
+                f"News sentiment {news_context.get('sentiment', 'NEUTRAL')}"
             )
 
-        score = max(
-            0,
-            min(
-                score,
-                100,
-            ),
-        )
+            if news_context.get("high_impact_upcoming"):
+                score -= 20 * weights.get("news", 1.0)
+                reasons.append(
+                    "High-impact news window approaching"
+                )
+
+        score = max(0, min(int(score), 100))
 
         return {
-
             "score": score,
-
             "reasons": reasons,
-
             "bullish": score >= 60,
-
             "bearish": score <= 40,
-
         }
 
 

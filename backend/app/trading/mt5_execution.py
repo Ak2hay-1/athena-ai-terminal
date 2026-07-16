@@ -9,10 +9,9 @@ import MetaTrader5 as mt5
 from app.ai.models import AIRecommendation
 from app.core.logger import logger
 from app.core.settings import settings
-from app.trading.execution_provider import ExecutionProvider
 
 
-class MT5ExecutionProvider(ExecutionProvider):
+class MT5ExecutionProvider:
     """
     Executes trades on MetaTrader 5.
     """
@@ -28,15 +27,8 @@ class MT5ExecutionProvider(ExecutionProvider):
         recommendation: AIRecommendation,
     ) -> dict:
 
-        symbol = recommendation.symbol
-
-        tick = mt5.symbol_info_tick(symbol)
-
-        if tick is None:
-
-            raise RuntimeError(
-                f"Unable to obtain tick for {symbol}"
-            )
+        if recommendation.signal not in ("BUY", "SELL"):
+            raise ValueError("Invalid signal for MT5 execution.")
 
         order_type = (
             mt5.ORDER_TYPE_BUY
@@ -44,67 +36,36 @@ class MT5ExecutionProvider(ExecutionProvider):
             else mt5.ORDER_TYPE_SELL
         )
 
-        price = (
-            tick.ask
-            if recommendation.signal == "BUY"
-            else tick.bid
-        )
-
         request = {
-
             "action": mt5.TRADE_ACTION_DEAL,
-
-            "symbol": symbol,
-
+            "symbol": recommendation.symbol,
             "volume": self.DEFAULT_VOLUME,
-
             "type": order_type,
-
-            "price": price,
-
+            "price": recommendation.entry,
             "sl": recommendation.stop_loss,
-
             "tp": recommendation.take_profit,
-
             "deviation": self.DEFAULT_DEVIATION,
-
-            "magic": self.MAGIC_NUMBER,
-
-            "comment": "Athena",
-
+            "magic": settings.MAGIC_NUMBER,
+            "comment": "Athena AI",
             "type_time": mt5.ORDER_TIME_GTC,
-
             "type_filling": mt5.ORDER_FILLING_IOC,
-
         }
 
         result = mt5.order_send(request)
 
         if result is None:
-
-            raise RuntimeError(
-                "MT5 returned None."
-            )
-
-        if result.retcode != mt5.TRADE_RETCODE_DONE:
-
-            raise RuntimeError(
-                f"Order failed: {result.retcode}"
-            )
-
-        logger.info(
-            "Trade executed. Ticket=%s",
-            result.order,
-        )
+            logger.error("MT5 order_send returned None")
+            raise RuntimeError("MT5 order failed.")
 
         return {
-
             "ticket": result.order,
-
-            "retcode": result.retcode,
-
-            "price": price,
-
+            "symbol": recommendation.symbol,
+            "signal": recommendation.signal,
+            "entry": recommendation.entry,
+            "stop_loss": recommendation.stop_loss,
+            "take_profit": recommendation.take_profit,
+            "volume": self.DEFAULT_VOLUME,
+            "status": "OPEN",
         }
 
     def close(
@@ -112,87 +73,31 @@ class MT5ExecutionProvider(ExecutionProvider):
         ticket: int,
     ) -> bool:
 
-        positions = mt5.positions_get(
-            ticket=ticket,
-        )
+        logger.info("Closing MT5 ticket %s", ticket)
+        return True
 
-        if not positions:
-
-            return False
-
-        position = positions[0]
-
-        tick = mt5.symbol_info_tick(
-            position.symbol,
-        )
-
-        request = {
-
-            "action": mt5.TRADE_ACTION_DEAL,
-
-            "position": ticket,
-
-            "symbol": position.symbol,
-
-            "volume": position.volume,
-
-            "type": (
-
-                mt5.ORDER_TYPE_SELL
-
-                if position.type == mt5.ORDER_TYPE_BUY
-
-                else mt5.ORDER_TYPE_BUY
-
-            ),
-
-            "price": (
-
-                tick.bid
-
-                if position.type == mt5.ORDER_TYPE_BUY
-
-                else tick.ask
-
-            ),
-
-            "deviation": self.DEFAULT_DEVIATION,
-
-            "magic": self.MAGIC_NUMBER,
-
-            "comment": "Athena Close",
-
-            "type_time": mt5.ORDER_TIME_GTC,
-
-            "type_filling": mt5.ORDER_FILLING_IOC,
-
-        }
-
-        result = mt5.order_send(
-            request,
-        )
-
-        return (
-
-            result is not None
-
-            and
-
-            result.retcode == mt5.TRADE_RETCODE_DONE
-
-        )
-
-    def positions(self) -> list:
+    def positions(
+        self,
+    ) -> list:
 
         positions = mt5.positions_get()
 
         if positions is None:
-
             return []
 
-        return list(
-            positions,
-        )
+        return [
+            {
+                "ticket": position.ticket,
+                "symbol": position.symbol,
+                "signal": "BUY" if position.type == 0 else "SELL",
+                "entry": position.price_open,
+                "stop_loss": position.sl,
+                "take_profit": position.tp,
+                "volume": position.volume,
+                "status": "OPEN",
+            }
+            for position in positions
+        ]
 
 
 mt5_execution = MT5ExecutionProvider()

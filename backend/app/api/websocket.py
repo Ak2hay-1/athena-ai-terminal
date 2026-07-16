@@ -38,74 +38,46 @@ async def websocket_endpoint(
                 "",
             ).upper()
 
-            # ---------------------------------
-            # Subscribe
-            # ---------------------------------
+            symbol = message.get("symbol", "")
+            timeframe = message.get("timeframe")
 
-            if action == "SUBSCRIBE":
+            if action == "SUBSCRIBE" and symbol:
 
-                symbol = message.get(
-                    "symbol",
-                    "",
+                await connection_manager.subscribe(
+                    websocket,
+                    symbol,
+                    timeframe,
                 )
 
-                if symbol:
-
-                    await connection_manager.subscribe(
-
-                        websocket,
-
-                        symbol,
-
-                    )
-
-                    await websocket.send_json(
-
-                        {
-
-                            "type": "subscribed",
-
-                            "symbol": symbol,
-
-                        }
-
-                    )
-
-            # ---------------------------------
-            # Unsubscribe
-            # ---------------------------------
-
-            elif action == "UNSUBSCRIBE":
-
-                symbol = message.get(
-                    "symbol",
-                    "",
+                await websocket.send_json(
+                    {
+                        "type": "subscribed",
+                        "symbol": symbol.upper(),
+                        "timeframe": (
+                            timeframe.upper()
+                            if timeframe
+                            else None
+                        ),
+                        "channel": (
+                            f"{symbol.upper()}:{timeframe.upper()}"
+                            if timeframe
+                            else symbol.upper()
+                        ),
+                    }
                 )
 
-                if symbol:
+            elif action == "UNSUBSCRIBE" and symbol:
 
-                    await connection_manager.unsubscribe(
-
-                        websocket,
-
-                        symbol,
-
-                    )
-
-            # ---------------------------------
-            # Heartbeat
-            # ---------------------------------
+                await connection_manager.unsubscribe(
+                    websocket,
+                    symbol,
+                    timeframe,
+                )
 
             elif action == "PING":
 
                 await websocket.send_json(
-
-                    {
-
-                        "type": "PONG",
-
-                    }
-
+                    {"type": "PONG"}
                 )
 
     except WebSocketDisconnect:

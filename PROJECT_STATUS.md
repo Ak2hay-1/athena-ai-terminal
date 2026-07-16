@@ -1,25 +1,17 @@
-ATHENA PROJECT STATUS
+# Athena Project Status
 
-Version:
-0.1.0-dev
+Version: 0.2.0-dev
 
-Current Sprint:
-Sprint 1
+Current Sprint: Sprint 2
 
-Backend:
-90%
+Backend: 95%
 
-Frontend:
-15%
+Frontend: 40%
 
-Overall Progress:
-65%
+Overall Progress: 75%
 
-Current Feature:
-AI Recommendation Pipeline
+Current Feature: Multi-pair, news-aware AI pipeline + basic frontend
 
-Next Feature:
-Automated Trading
+Next Feature: Trading UI polish + expanded test coverage
 
-Known Blockers:
-None
+Known Blockers: MT5 and Ollama required for live data/AI in local dev

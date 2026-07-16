@@ -9,24 +9,21 @@ from __future__ import annotations
 from app.ai.models import AIRecommendation
 from app.core.logger import logger
 from app.core.settings import settings
-from app.trading.mt5_execution import mt5_execution
-from app.trading.paper_execution import (
-    paper_execution,
-)
-from app.analysis.trade_validator import (
-    trade_validator,
-)
+from app.analysis.trade_validator import trade_validator
+from app.trading.paper_execution import paper_execution
 
 
 class OrderManager:
     """
     Order Manager.
 
-    Chooses execution provider
-    and validates every trade.
+    Chooses execution provider and validates every trade.
     """
 
     def __init__(self):
+
+        self.execution = paper_execution
+        self._mt5_execution = None
 
         provider = getattr(
             settings,
@@ -35,19 +32,15 @@ class OrderManager:
         ).lower()
 
         if provider == "mt5":
+            from app.trading.mt5_execution import mt5_execution
 
             self.execution = mt5_execution
-
-        else:
-
-            self.execution = paper_execution
+            self._mt5_execution = mt5_execution
 
         logger.info(
             "Execution Provider: %s",
             provider,
         )
-
-    # ---------------------------------------------
 
     def execute(
         self,
@@ -61,11 +54,8 @@ class OrderManager:
         if not decision.execute:
 
             return {
-
                 "success": False,
-
                 "reasons": decision.reasons,
-
             }
 
         trade = self.execution.execute(
@@ -73,16 +63,10 @@ class OrderManager:
         )
 
         return {
-
             "success": True,
-
             "trade": trade,
-
             "validation": decision.reasons,
-
         }
-
-    # ---------------------------------------------
 
     def close(
         self,
@@ -92,8 +76,6 @@ class OrderManager:
         return self.execution.close(
             ticket,
         )
-
-    # ---------------------------------------------
 
     def positions(
         self,

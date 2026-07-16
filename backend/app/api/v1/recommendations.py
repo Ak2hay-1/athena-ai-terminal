@@ -6,7 +6,9 @@ from fastapi import APIRouter
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
-from app.database.session import get_db
+from app.auth.dependencies import require_viewer
+from app.database.database import get_db
+from app.models.user import User
 from app.repositories.recommendation_repository import RecommendationRepository
 from app.schemas.recommendation import (
     RecommendationRead,
@@ -26,6 +28,7 @@ def latest(
     symbol: str,
     timeframe: str,
     db: Session = Depends(get_db),
+    _: User = Depends(require_viewer),
 ):
     """
     Latest recommendation.
@@ -48,6 +51,7 @@ def history(
     timeframe: str,
     limit: int = 100,
     db: Session = Depends(get_db),
+    _: User = Depends(require_viewer),
 ):
     """
     Recommendation history.
@@ -67,6 +71,7 @@ def history(
 )
 def recommendation_count(
     db: Session = Depends(get_db),
+    _: User = Depends(require_viewer),
 ):
     """
     Total stored recommendations for the default

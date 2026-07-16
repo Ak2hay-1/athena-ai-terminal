@@ -278,11 +278,44 @@ class MarketService(BaseService):
             self.db
         )
 
+        news_context = None
+        weights = None
+        higher_timeframes = None
+
+        try:
+            from app.learning.adaptive_weights import AdaptiveWeightEngine
+            from app.services.news_service import NewsService
+
+            news_context = NewsService(self.db).get_context_for_symbol(
+                symbol
+            )
+            weights = AdaptiveWeightEngine(self.db).get_weights(
+                symbol,
+                timeframe,
+            )
+            higher_timeframes = self._load_higher_timeframes(
+                symbol,
+                timeframe,
+            )
+
+        except Exception:
+
+            self.logger.exception(
+                "Optional context load failed for %s %s",
+                symbol,
+                timeframe,
+            )
+
         try:
 
             recommendation = recommendation_engine.analyze(
                 dataframe=dataframe,
+                symbol=symbol,
+                timeframe=timeframe,
                 repository=repository,
+                news_context=news_context,
+                higher_timeframes=higher_timeframes,
+                weights=weights,
             )
 
             self.commit()
@@ -332,6 +365,35 @@ class MarketService(BaseService):
     # ======================================================
     # Helpers
     # ======================================================
+
+    def _load_higher_timeframes(
+        self,
+        symbol: str,
+        timeframe: str,
+    ) -> dict[str, pd.DataFrame]:
+        from app.core.settings import settings
+
+        context_tfs = settings.MULTI_TF_CONTEXT.get(
+            timeframe,
+            [],
+        )
+
+        frames: dict[str, pd.DataFrame] = {}
+
+        for tf in context_tfs:
+
+            candles = self.market.get_latest_candles(
+                symbol=symbol,
+                timeframe=tf,
+                limit=500,
+            )
+
+            if len(candles) < self.MIN_ANALYSIS_CANDLES:
+                continue
+
+            frames[tf] = self._candles_to_dataframe(candles)
+
+        return frames
 
     def _candles_to_dataframe(
         self,
