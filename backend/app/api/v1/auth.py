@@ -17,6 +17,8 @@ from app.auth.dependencies import (
 )
 from app.models.user import User
 from app.schemas.user import (
+    AdminRoleUpdate,
+    AdminUserUpdate,
     ChangePasswordRequest,
     LoginRequest,
     RefreshTokenRequest,
@@ -63,6 +65,31 @@ def login(
     payload: LoginRequest,
     service: AuthService = Depends(get_auth_service),
 ):
+    # #region agent log
+    try:
+        import json
+        import time
+        from pathlib import Path
+
+        Path(__file__).resolve().parents[4].joinpath("debug-9c9447.log").open(
+            "a", encoding="utf-8"
+        ).write(
+            json.dumps(
+                {
+                    "sessionId": "9c9447",
+                    "runId": "pre-fix",
+                    "hypothesisId": "D",
+                    "location": "auth.py:login",
+                    "message": "login handler entered",
+                    "data": {"username": payload.username[:64]},
+                    "timestamp": int(time.time() * 1000),
+                }
+            )
+            + "\n"
+        )
+    except Exception:
+        pass
+    # #endregion
     return service.login(payload)
 
 
@@ -213,12 +240,13 @@ def get_user(
 )
 def activate_user(
     user_id: int,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     service: AuthService = Depends(get_auth_service),
 ):
     return service.set_active(
         user_id,
         True,
+        actor_id=current_user.id,
     )
 
 
@@ -229,10 +257,47 @@ def activate_user(
 )
 def deactivate_user(
     user_id: int,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin),
     service: AuthService = Depends(get_auth_service),
 ):
     return service.set_active(
         user_id,
         False,
+        actor_id=current_user.id,
+    )
+
+
+@router.patch(
+    "/users/{user_id}",
+    response_model=UserRead,
+    summary="Update user (admin)",
+)
+def admin_update_user(
+    user_id: int,
+    payload: AdminUserUpdate,
+    current_user: User = Depends(require_admin),
+    service: AuthService = Depends(get_auth_service),
+):
+    return service.admin_update_user(
+        user_id,
+        payload,
+        actor_id=current_user.id,
+    )
+
+
+@router.patch(
+    "/users/{user_id}/role",
+    response_model=UserRead,
+    summary="Update user role",
+)
+def update_user_role(
+    user_id: int,
+    payload: AdminRoleUpdate,
+    current_user: User = Depends(require_admin),
+    service: AuthService = Depends(get_auth_service),
+):
+    return service.set_role(
+        user_id,
+        payload.role,
+        actor_id=current_user.id,
     )

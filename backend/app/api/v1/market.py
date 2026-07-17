@@ -11,6 +11,7 @@ from fastapi import Depends
 from fastapi import Query
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import require_admin
 from app.auth.dependencies import require_trader
 from app.database.database import get_db
 from app.models.user import User
@@ -18,6 +19,7 @@ from app.schemas.market import (
     MarketCandleCreate,
     MarketCandleRead,
     MarketHistoryRequest,
+    MarketQuote,
     MarketStatistics,
 )
 from app.services.market_service import MarketService
@@ -153,6 +155,35 @@ def history(
 
 
 # ==========================================================
+# Live Quotes
+# ==========================================================
+
+@router.get(
+    "/quotes",
+    response_model=list[MarketQuote],
+    summary="Live market quotes",
+)
+def live_quotes(
+    symbols: str = Query(
+        ...,
+        description="Comma-separated symbols, e.g. XAUUSD,EURUSD",
+    ),
+    timeframe: str = Query(
+        default="M1",
+        description="Fallback candle timeframe when tick is unavailable",
+    ),
+    _: User = Depends(require_trader),
+    service: MarketService = Depends(get_market_service),
+):
+    symbol_list = [
+        item.strip().upper()
+        for item in symbols.split(",")
+        if item.strip()
+    ]
+    return service.get_quotes(symbol_list, timeframe)
+
+
+# ==========================================================
 # Statistics
 # ==========================================================
 
@@ -185,7 +216,7 @@ def statistics(
 )
 def cleanup(
     before: datetime = Query(...),
-    _: User = Depends(require_trader),
+    _: User = Depends(require_admin),
     service: MarketService = Depends(get_market_service),
 ):
 

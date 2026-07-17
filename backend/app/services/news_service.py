@@ -5,11 +5,59 @@ News ingestion and query service.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
+import sys
+import time
 from datetime import datetime
 from datetime import timezone
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 from xml.etree import ElementTree
+
+# #region agent log
+def _agent_dbg(hypothesis_id: str, message: str, data: dict) -> None:
+    try:
+        payload = {
+            "sessionId": "5f6221",
+            "runId": "post-fix",
+            "hypothesisId": hypothesis_id,
+            "location": "news_service.py:import",
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        log_path = Path(__file__).resolve().parents[3] / "debug-5f6221.log"
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+
+
+_pkg_status: dict[str, object] = {
+    "executable": sys.executable,
+    "VIRTUAL_ENV": __import__("os").environ.get("VIRTUAL_ENV"),
+}
+for _name in ("feedparser", "redis", "httpx"):
+    try:
+        __import__(_name)
+        _pkg_status[_name] = {"ok": True}
+    except Exception as _exc:  # noqa: BLE001
+        _pkg_status[_name] = {"ok": False, "error": type(_exc).__name__, "msg": str(_exc)}
+_agent_dbg("A", "feedparser availability probe", _pkg_status)
+_agent_dbg(
+    "B",
+    "incomplete venv deps probe",
+    {
+        "feedparser_ok": isinstance(_pkg_status.get("feedparser"), dict)
+        and _pkg_status["feedparser"].get("ok"),
+        "redis_ok": isinstance(_pkg_status.get("redis"), dict)
+        and _pkg_status["redis"].get("ok"),
+        "httpx_ok": isinstance(_pkg_status.get("httpx"), dict)
+        and _pkg_status["httpx"].get("ok"),
+    },
+)
+# #endregion
 
 import feedparser
 import httpx

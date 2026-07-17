@@ -114,6 +114,34 @@ class UserUpdate(BaseModel):
     )
 
 
+class AdminUserUpdate(BaseModel):
+    """
+    Admin update for another user.
+    """
+
+    email: EmailStr | None = None
+
+    full_name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+    )
+
+    role: UserRole | None = None
+
+    is_active: bool | None = None
+
+    is_verified: bool | None = None
+
+
+class AdminRoleUpdate(BaseModel):
+    """
+    Admin role assignment.
+    """
+
+    role: UserRole
+
+
 # ==========================================================
 # Read
 # ==========================================================

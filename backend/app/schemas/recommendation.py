@@ -57,6 +57,18 @@ class RecommendationBase(BaseModel):
 
     risk_reward: Decimal
 
+    entry_type: str = "NONE"
+
+    risk_pips: Decimal = Decimal("0")
+
+    reward_pips: Decimal = Decimal("0")
+
+    sl_reason: str = ""
+
+    tp_reason: str = ""
+
+    validation: dict[str, Any] = Field(default_factory=dict)
+
     analysis: dict[str, Any]
 
     reasoning: list[str]

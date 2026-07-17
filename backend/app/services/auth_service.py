@@ -10,9 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.auth.security import security
 from app.core.exceptions import ValidationException
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.repositories.user_repository import UserRepository
 from app.schemas.user import (
+    AdminUserUpdate,
     ChangePasswordRequest,
     LoginRequest,
     RefreshTokenRequest,
@@ -235,18 +236,19 @@ class AuthService(BaseService):
                 "Email already exists."
             )
 
-        if payload.password:
+        values = payload.model_dump(exclude_unset=True)
 
+        if "password" in values and values["password"]:
             user.password_hash = security.hash_password(
-                payload.password,
+                values.pop("password"),
             )
+            user.password_changed_at = datetime.now(
+                timezone.utc,
+            )
+        else:
+            values.pop("password", None)
 
-            payload.password = None
-
-        self.users.update(
-            user,
-            payload,
-        )
+        self.users.update(user, values)
 
         self.commit()
 
@@ -258,6 +260,70 @@ class AuthService(BaseService):
         )
 
         return UserRead.model_validate(user)
+
+    def admin_update_user(
+        self,
+        user_id: int,
+        payload: AdminUserUpdate,
+        *,
+        actor_id: int,
+    ) -> UserRead:
+
+        user = self.get_user(user_id)
+        values = payload.model_dump(exclude_unset=True)
+
+        if (
+            "email" in values
+            and values["email"] != user.email
+            and self.users.email_exists(values["email"])
+        ):
+            raise ValidationException(
+                "Email already exists."
+            )
+
+        if (
+            user_id == actor_id
+            and "role" in values
+            and values["role"] != UserRole.ADMIN
+        ):
+            raise ValidationException(
+                "You cannot demote your own admin role."
+            )
+
+        if (
+            user_id == actor_id
+            and values.get("is_active") is False
+        ):
+            raise ValidationException(
+                "You cannot deactivate your own account."
+            )
+
+        self.users.update(user, values)
+
+        self.commit()
+
+        self.refresh(user)
+
+        self.logger.info(
+            "Admin updated user: %s",
+            user.username,
+        )
+
+        return UserRead.model_validate(user)
+
+    def set_role(
+        self,
+        user_id: int,
+        role: UserRole,
+        *,
+        actor_id: int,
+    ) -> UserRead:
+
+        return self.admin_update_user(
+            user_id,
+            AdminUserUpdate(role=role),
+            actor_id=actor_id,
+        )
 
     # ======================================================
     # Password
@@ -302,7 +368,14 @@ class AuthService(BaseService):
         self,
         user_id: int,
         active: bool,
+        *,
+        actor_id: int | None = None,
     ) -> UserRead:
+
+        if actor_id is not None and user_id == actor_id and not active:
+            raise ValidationException(
+                "You cannot deactivate your own account."
+            )
 
         user = self.get_user(user_id)
 

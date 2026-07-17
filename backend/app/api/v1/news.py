@@ -9,6 +9,7 @@ from fastapi import Depends
 from fastapi import Query
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import require_admin
 from app.auth.dependencies import require_viewer
 from app.core.market_validation import validate_symbol
 from app.database.database import get_db
@@ -99,7 +100,7 @@ def news_context(
     summary="Trigger news sync",
 )
 def sync_news(
-    _: User = Depends(require_viewer),
+    _: User = Depends(require_admin),
     service: NewsService = Depends(get_news_service),
 ):
     inserted = service.sync_feeds()

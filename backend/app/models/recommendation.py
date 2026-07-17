@@ -121,6 +121,48 @@ class Recommendation(BaseModel):
         nullable=False,
     )
 
+    entry_type: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="NONE",
+        server_default="NONE",
+    )
+
+    risk_pips: Mapped[Decimal] = mapped_column(
+        Numeric(18, 8),
+        nullable=False,
+        default=Decimal("0"),
+        server_default="0",
+    )
+
+    reward_pips: Mapped[Decimal] = mapped_column(
+        Numeric(18, 8),
+        nullable=False,
+        default=Decimal("0"),
+        server_default="0",
+    )
+
+    sl_reason: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="",
+        server_default="",
+    )
+
+    tp_reason: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="",
+        server_default="",
+    )
+
+    validation: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+
     # ==========================================================
     # AI Details
     # ==========================================================
@@ -151,6 +193,11 @@ class Recommendation(BaseModel):
     def is_hold(self) -> bool:
         """Return True if recommendation is HOLD."""
         return self.signal == RecommendationSignal.HOLD
+
+    @property
+    def is_no_trade(self) -> bool:
+        """Return True if recommendation is NO_TRADE."""
+        return self.signal == RecommendationSignal.NO_TRADE
 
     @property
     def is_high_confidence(self) -> bool:

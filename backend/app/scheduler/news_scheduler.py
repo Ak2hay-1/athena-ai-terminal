@@ -4,6 +4,9 @@ News sync scheduler.
 
 from __future__ import annotations
 
+from datetime import datetime
+from typing import Any
+
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.core.logger import logger
@@ -12,6 +15,23 @@ from app.database.database import SessionLocal
 from app.learning.outcome_labeler import OutcomeLabeler
 from app.services.learning_service import LearningService
 from app.services.news_service import NewsService
+
+
+def _serialize_jobs(scheduler: BackgroundScheduler) -> list[dict[str, Any]]:
+    jobs: list[dict[str, Any]] = []
+
+    for job in scheduler.get_jobs():
+        next_run = job.next_run_time
+        jobs.append(
+            {
+                "id": job.id,
+                "name": job.name or job.id,
+                "next_run_time": next_run.isoformat() if next_run else None,
+                "trigger": str(job.trigger),
+            }
+        )
+
+    return jobs
 
 
 class NewsScheduler:
@@ -124,6 +144,27 @@ class NewsScheduler:
         self.scheduler.start()
 
         logger.info("News/Learning scheduler started")
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "name": "news_learning",
+            "running": self.scheduler.running,
+            "jobs": _serialize_jobs(self.scheduler) if self.scheduler.running else [],
+        }
+
+    def trigger_job(self, job_id: str) -> dict[str, Any]:
+        job = self.scheduler.get_job(job_id)
+
+        if job is None:
+            raise ValueError(f"Unknown news/learning job: {job_id}")
+
+        now = datetime.now(tz=self.scheduler.timezone)
+        self.scheduler.modify_job(job_id, next_run_time=now)
+
+        return {
+            "triggered": job_id,
+            "next_run_time": now.isoformat(),
+        }
 
     def shutdown(self) -> None:
 

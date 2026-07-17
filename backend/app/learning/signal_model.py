@@ -5,7 +5,64 @@ Lightweight signal scoring model.
 from __future__ import annotations
 
 import json
+import sys
+import time
 from pathlib import Path
+
+# #region agent log
+def _agent_dbg(hypothesis_id: str, message: str, data: dict) -> None:
+    try:
+        payload = {
+            "sessionId": "5f6221",
+            "runId": "post-fix",
+            "hypothesisId": hypothesis_id,
+            "location": "signal_model.py:import",
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        log_path = Path(__file__).resolve().parents[3] / "debug-5f6221.log"
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+
+
+_pkg_status: dict[str, object] = {
+    "executable": sys.executable,
+    "prefix": sys.prefix,
+    "VIRTUAL_ENV": __import__("os").environ.get("VIRTUAL_ENV"),
+}
+for _name in ("joblib", "sklearn", "numpy"):
+    try:
+        __import__(_name)
+        _pkg_status[_name] = {"ok": True}
+    except Exception as _exc:  # noqa: BLE001
+        _pkg_status[_name] = {"ok": False, "error": type(_exc).__name__, "msg": str(_exc)}
+_agent_dbg("A", "pre-import package probe", _pkg_status)
+_agent_dbg(
+    "B",
+    "scikit-learn / joblib availability",
+    {
+        "joblib_ok": _pkg_status.get("joblib", {}).get("ok")
+        if isinstance(_pkg_status.get("joblib"), dict)
+        else False,
+        "sklearn_ok": _pkg_status.get("sklearn", {}).get("ok")
+        if isinstance(_pkg_status.get("sklearn"), dict)
+        else False,
+    },
+)
+_agent_dbg(
+    "C",
+    "interpreter / venv identity",
+    {
+        "executable": sys.executable,
+        "prefix": sys.prefix,
+        "VIRTUAL_ENV": __import__("os").environ.get("VIRTUAL_ENV"),
+        "in_venv": getattr(sys, "base_prefix", sys.prefix) != sys.prefix,
+    },
+)
+# #endregion
 
 import joblib
 import numpy as np

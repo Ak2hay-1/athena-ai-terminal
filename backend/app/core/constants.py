@@ -10,6 +10,7 @@ DEFAULT_SYMBOL = "XAUUSD"
 
 SUPPORTED_SYMBOLS = [
     "XAUUSD",
+    "XAGUSD",
     "EURUSD",
     "GBPUSD",
     "USDJPY",
@@ -17,8 +18,12 @@ SUPPORTED_SYMBOLS = [
     "USDCAD",
     "NZDUSD",
     "USDCHF",
+    "EURJPY",
+    "GBPJPY",
+    "EURGBP",
     "BTCUSD",
     "ETHUSD",
+    "SOLUSD",
 ]
 
 SUPPORTED_TIMEFRAMES = [

@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import RecommendationSignal
+from app.core.enums import TrendDirection
 from app.models.recommendation import Recommendation
 from app.repositories.base_repository import BaseRepository
 
@@ -64,7 +65,12 @@ class RecommendationRepository(BaseRepository[Recommendation]):
             .where(
                 Recommendation.symbol == symbol,
                 Recommendation.timeframe == timeframe,
-                Recommendation.signal != RecommendationSignal.HOLD,
+                Recommendation.signal.notin_(
+                    [
+                        RecommendationSignal.HOLD,
+                        RecommendationSignal.NO_TRADE,
+                    ]
+                ),
             )
             .order_by(
                 desc(Recommendation.created_at)
@@ -110,17 +116,30 @@ class RecommendationRepository(BaseRepository[Recommendation]):
         an AI recommendation object.
         """
 
+        trend = recommendation.trend
+        if isinstance(trend, str):
+            try:
+                trend = TrendDirection(trend.upper())
+            except ValueError:
+                trend = TrendDirection.SIDEWAYS
+
         db_recommendation = Recommendation(
             symbol=recommendation.symbol,
             timeframe=recommendation.timeframe,
             signal=recommendation.signal,
             confidence=int(recommendation.confidence),
-            trend=recommendation.trend,
-            confluence=recommendation.confluence,
+            trend=trend,
+            confluence=int(recommendation.confluence or 0),
             entry_price=recommendation.entry,
             stop_loss=recommendation.stop_loss,
             take_profit=recommendation.take_profit,
             risk_reward=recommendation.risk_reward,
+            entry_type=getattr(recommendation, "entry_type", None) or "NONE",
+            risk_pips=getattr(recommendation, "risk_pips", 0) or 0,
+            reward_pips=getattr(recommendation, "reward_pips", 0) or 0,
+            sl_reason=getattr(recommendation, "sl_reason", None) or "",
+            tp_reason=getattr(recommendation, "tp_reason", None) or "",
+            validation=getattr(recommendation, "validation", None) or {},
             analysis=analysis,
             reasoning=recommendation.reason,
         )

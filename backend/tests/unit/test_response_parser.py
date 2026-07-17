@@ -19,3 +19,21 @@ def test_response_parser_invalid_fallback():
     result = response_parser.parse("not-json")
     assert result.signal.value == "HOLD"
     assert result.confidence == 0
+
+
+def test_response_parser_trailing_comma_repair():
+    payload = """{
+    "signal":"HOLD",
+    "confidence":40,
+    "reason":["Sideways market","No clear breakout"],
+}"""
+    result = response_parser.parse(payload)
+    assert result.signal.value == "HOLD"
+    assert result.confidence == 40
+
+
+def test_response_parser_prose_wrapper():
+    payload = 'Here you go:\n{"signal":"SELL","confidence":70,"reason":["breakdown"]}\nThanks'
+    result = response_parser.parse(payload)
+    assert result.signal.value == "SELL"
+    assert result.confidence == 70

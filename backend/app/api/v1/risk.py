@@ -36,6 +36,16 @@ def risk_limits(
         "max_open_trades": settings.MAX_OPEN_TRADES,
         "max_risk_percent": settings.MAX_RISK_PERCENT,
         "risk_reward_ratio": settings.RISK_REWARD_RATIO,
+        "min_rr": settings.MIN_RR,
+        "preferred_rr": settings.PREFERRED_RR,
+        "max_rr": settings.MAX_RR,
+        "atr_multiplier": settings.ATR_MULTIPLIER,
+        "atr_multipliers_by_style": settings.ATR_MULTIPLIERS_BY_STYLE,
+        "min_stop_pips": settings.MIN_STOP_PIPS,
+        "sl_buffer_atr_fraction": settings.SL_BUFFER_ATR_FRACTION,
+        "min_sl_atr_fraction": settings.MIN_SL_ATR_FRACTION,
+        "require_bos": settings.REQUIRE_BOS,
+        "require_choch": settings.REQUIRE_CHOCH,
         "execution_provider": settings.EXECUTION_PROVIDER,
     }
 

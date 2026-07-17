@@ -4,6 +4,8 @@ AI Models.
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
@@ -29,8 +31,10 @@ class AIRecommendation(BaseModel):
         le=100,
     )
 
-    # Trading levels
+    # Trading levels (always from risk engine)
     entry: float = 0.0
+
+    entry_type: str = "NONE"
 
     stop_loss: float = 0.0
 
@@ -38,7 +42,19 @@ class AIRecommendation(BaseModel):
 
     risk_reward: float = 0.0
 
-    # AI reasoning
+    risk_pips: float = 0.0
+
+    reward_pips: float = 0.0
+
+    sl_reason: str = ""
+
+    tp_reason: str = ""
+
+    entry_reason: str = ""
+
+    validation: dict[str, Any] = Field(default_factory=dict)
+
+    # Narrative (AI or risk engine)
     reason: list[str] = Field(
         default_factory=list,
     )

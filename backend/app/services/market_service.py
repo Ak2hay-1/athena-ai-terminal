@@ -7,11 +7,13 @@ Business logic for market data operations.
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timezone
 
 import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.ai.recommendation_engine import recommendation_engine
+from app.ai.schemas.context import MarketContext
 from app.core.exceptions import ValidationException
 from app.models.market_candle import MarketCandle
 from app.repositories.market_repository import MarketRepository
@@ -19,6 +21,7 @@ from app.repositories.recommendation_repository import RecommendationRepository
 from app.schemas.market import (
     MarketCandleCreate,
     MarketCandleRead,
+    MarketQuote,
     MarketStatistics,
 )
 from app.services.base_service import BaseService
@@ -225,6 +228,81 @@ class MarketService(BaseService):
         ]
 
     # ======================================================
+    # Live Quotes
+    # ======================================================
+
+    def get_quotes(
+        self,
+        symbols: list[str],
+        timeframe: str = "M1",
+    ) -> list[MarketQuote]:
+        """
+        Return live mid quotes from MT5 ticks, falling back to
+        the latest candle close when a tick is unavailable.
+        """
+
+        from app.market.adapter import market as mt5_market
+
+        quotes: list[MarketQuote] = []
+
+        for raw_symbol in symbols:
+            symbol = raw_symbol.upper().strip()
+            if not symbol:
+                continue
+
+            tick = None
+            try:
+                tick = mt5_market.tick(symbol)
+            except Exception:
+                self.logger.exception(
+                    "Tick fetch failed for %s",
+                    symbol,
+                )
+
+            if tick is not None:
+                bid = float(tick.get("bid") or 0)
+                ask = float(tick.get("ask") or 0)
+                mid = (bid + ask) / 2 if bid and ask else bid or ask
+                if mid:
+                    quotes.append(
+                        MarketQuote(
+                            symbol=symbol,
+                            bid=bid,
+                            ask=ask,
+                            mid=mid,
+                            time=datetime.fromtimestamp(
+                                int(tick.get("time") or 0),
+                                tz=timezone.utc,
+                            )
+                            if tick.get("time")
+                            else None,
+                            source="tick",
+                        )
+                    )
+                    continue
+
+            candle = self.market.get_latest(
+                symbol,
+                timeframe.upper(),
+            )
+            if candle is None:
+                continue
+
+            close = float(candle.close)
+            quotes.append(
+                MarketQuote(
+                    symbol=symbol,
+                    bid=close,
+                    ask=close,
+                    mid=close,
+                    time=candle.time,
+                    source="candle",
+                )
+            )
+
+        return quotes
+
+    # ======================================================
     # Statistics
     # ======================================================
 
@@ -361,6 +439,66 @@ class MarketService(BaseService):
                 symbol=symbol,
                 timeframe=timeframe,
             )
+
+    # ======================================================
+    # Slim AI Market Context (no candles to LLM)
+    # ======================================================
+
+    def build_ai_market_context(
+        self,
+        symbol: str,
+        timeframe: str,
+        limit: int = 500,
+    ) -> MarketContext | None:
+        """
+        Build structured MarketContext for AIService.
+
+        Runs local analyzers only; never returns OHLC series.
+        """
+
+        from app.analysis.market_analyzer import market_analyzer
+        from app.analysis.multi_timeframe_analyzer import multi_timeframe_analyzer
+
+        candles = self.market.get_latest_candles(
+            symbol=symbol,
+            timeframe=timeframe,
+            limit=limit,
+        )
+        if len(candles) < self.MIN_ANALYSIS_CANDLES:
+            return None
+
+        dataframe = self._candles_to_dataframe(candles)
+        news_context = None
+        weights = None
+        multi_tf = None
+
+        try:
+            from app.learning.adaptive_weights import AdaptiveWeightEngine
+            from app.services.news_service import NewsService
+
+            news_context = NewsService(self.db).get_context_for_symbol(symbol)
+            weights = AdaptiveWeightEngine(self.db).get_weights(symbol, timeframe)
+            higher = self._load_higher_timeframes(symbol, timeframe)
+            if higher:
+                multi_tf = multi_timeframe_analyzer.analyze(higher)
+        except Exception:
+            self.logger.exception(
+                "Optional AI context load failed for %s %s",
+                symbol,
+                timeframe,
+            )
+
+        analysis = market_analyzer.analyze(
+            dataframe,
+            news_context=news_context,
+            multi_timeframe=multi_tf,
+            weights=weights,
+        )
+        return MarketContext.from_analysis(
+            analysis,
+            symbol=symbol,
+            timeframe=timeframe,
+        )
 
     # ======================================================
     # Helpers

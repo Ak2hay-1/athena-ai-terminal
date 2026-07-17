@@ -172,6 +172,28 @@ class MarketStatistics(BaseModel):
 
 
 # ==========================================================
+# Quotes
+# ==========================================================
+
+class MarketQuote(BaseModel):
+    """
+    Live market quote (tick mid with candle fallback).
+    """
+
+    symbol: str
+
+    bid: float
+
+    ask: float
+
+    mid: float
+
+    time: datetime | None = None
+
+    source: str = "tick"
+
+
+# ==========================================================
 # WebSocket
 # ==========================================================
 

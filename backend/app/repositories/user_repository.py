@@ -92,3 +92,37 @@ class UserRepository(BaseRepository[User]):
             is not None
 
         )
+
+    # ======================================================
+    # Counts
+    # ======================================================
+
+    def count_all(self) -> int:
+        return int(
+            self.db.scalar(
+                select(func.count()).select_from(User)
+            )
+            or 0
+        )
+
+    def count_active(self) -> int:
+        return int(
+            self.db.scalar(
+                select(func.count())
+                .select_from(User)
+                .where(User.is_active.is_(True))
+            )
+            or 0
+        )
+
+    def count_admins(self) -> int:
+        from app.models.user import UserRole
+
+        return int(
+            self.db.scalar(
+                select(func.count())
+                .select_from(User)
+                .where(User.role == UserRole.ADMIN)
+            )
+            or 0
+        )

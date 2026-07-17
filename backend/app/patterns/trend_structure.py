@@ -21,6 +21,13 @@ from app.patterns.swing_detector import swing_detector
 class TrendStructure(BasePattern):
     """
     Detect market structure.
+
+    Trend is derived from the most recent swing-high and swing-low
+    classifications across bars (not required on the same candle):
+
+    - HH + HL → BULLISH
+    - LH + LL → BEARISH
+    - otherwise keep the prior trend (default SIDEWAYS)
     """
 
     def detect(
@@ -39,10 +46,14 @@ class TrendStructure(BasePattern):
 
         previous_high = None
         previous_low = None
+        last_high_structure: str | None = None
+        last_low_structure: str | None = None
+        current_trend = "SIDEWAYS"
 
         for i in range(len(df)):
 
             row = df.iloc[i]
+            idx = df.index[i]
 
             # -------------------------
             # Swing High
@@ -54,11 +65,13 @@ class TrendStructure(BasePattern):
 
                     if row["high"] > previous_high:
 
-                        df.at[df.index[i], "hh"] = True
+                        df.at[idx, "hh"] = True
+                        last_high_structure = "HH"
 
                     else:
 
-                        df.at[df.index[i], "lh"] = True
+                        df.at[idx, "lh"] = True
+                        last_high_structure = "LH"
 
                 previous_high = row["high"]
 
@@ -72,31 +85,26 @@ class TrendStructure(BasePattern):
 
                     if row["low"] > previous_low:
 
-                        df.at[df.index[i], "hl"] = True
+                        df.at[idx, "hl"] = True
+                        last_low_structure = "HL"
 
                     else:
 
-                        df.at[df.index[i], "ll"] = True
+                        df.at[idx, "ll"] = True
+                        last_low_structure = "LL"
 
                 previous_low = row["low"]
 
             # -------------------------
-            # Trend
+            # Trend (across swing sequence)
             # -------------------------
 
-            if (
-                df.at[df.index[i], "hh"]
-                and df.at[df.index[i], "hl"]
-            ):
+            if last_high_structure == "HH" and last_low_structure == "HL":
+                current_trend = "BULLISH"
+            elif last_high_structure == "LH" and last_low_structure == "LL":
+                current_trend = "BEARISH"
 
-                df.at[df.index[i], "trend"] = "BULLISH"
-
-            elif (
-                df.at[df.index[i], "lh"]
-                and df.at[df.index[i], "ll"]
-            ):
-
-                df.at[df.index[i], "trend"] = "BEARISH"
+            df.at[idx, "trend"] = current_trend
 
         return df
 

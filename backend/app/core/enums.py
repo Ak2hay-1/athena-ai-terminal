@@ -15,6 +15,7 @@ class RecommendationSignal(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
     HOLD = "HOLD"
+    NO_TRADE = "NO_TRADE"
 
 
 class TrendDirection(str, Enum):
