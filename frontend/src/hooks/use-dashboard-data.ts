@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MARKET_SYMBOLS } from "@/constants/markets";
 import {
@@ -11,16 +11,19 @@ import {
   relativeTime,
   toNumber,
 } from "@/lib/mappers";
+import { getMarketHours } from "@/lib/market-hours";
 import { applyQuoteToCandle } from "@/lib/utils";
+import { syncNewsFeeds } from "@/services/admin";
 import { getHealth } from "@/services/health";
 import { getCandles, getLatestCandle, getQuotes } from "@/services/market";
 import { getCalendar, getLatestNews, getNewsContext } from "@/services/news";
 import {
   analyzeMarket,
-  getLatestRecommendation,
   getRecommendationHistory,
+  getSymbolScenario,
 } from "@/services/recommendations";
-import { getPositions } from "@/services/trading";
+import { getScannerOpportunities } from "@/services/scanner";
+import { listWatchlist } from "@/services/watchlist";
 import { useAuthStore } from "@/store/auth-store";
 import { useDashboardStore } from "@/store/dashboard-store";
 import type {
@@ -29,57 +32,102 @@ import type {
   MarketStatus,
   Recommendation,
   ScannerOpportunity,
+  TimeframeSignalSnapshot,
   WatchlistItem,
 } from "@/types";
 import { useMarketWebSocket } from "./use-market-websocket";
 
-const WATCHLIST_SYMBOLS = [...MARKET_SYMBOLS];
+/** Chart candles may use any TF; trade signals use best-across-TFs (no TF gate). */
+const WATCHLIST_PRICE_TF = "M5";
+const SCANNER_PRIMARY_TF = "M15";
 
-async function buildWatchlist(timeframe: string): Promise<WatchlistItem[]> {
-  const [rows, quotes] = await Promise.all([
+async function resolveWatchlistSymbols(): Promise<string[]> {
+  try {
+    const entries = await listWatchlist();
+    const symbols = [
+      ...new Set(
+        entries
+          .filter((entry) => entry.enabled)
+          .map((entry) => entry.symbol.toUpperCase()),
+      ),
+    ];
+    if (symbols.length > 0) return symbols;
+  } catch {
+    // Fall back to configured market list when watchlist API is empty/unavailable.
+  }
+  return [...MARKET_SYMBOLS];
+}
+
+async function buildWatchlist(): Promise<WatchlistItem[]> {
+  const symbols = await resolveWatchlistSymbols();
+  // Institutional desk signals come from the scanner board (qualified),
+  // not best-across-TF actionable recommendations.
+  const [scannerBoard, candlesBySymbol, quotes] = await Promise.all([
+    getScannerOpportunities({
+      timeframe: WATCHLIST_PRICE_TF,
+      symbols,
+      minScore: 0,
+    }).catch(() => null),
     Promise.all(
-      WATCHLIST_SYMBOLS.map(async (symbol) => {
-        const [recommendation, candles] = await Promise.all([
-          getLatestRecommendation(symbol, timeframe),
-          getCandles(symbol, timeframe, 3),
-        ]);
-
-        const latest = candles.at(-1);
-        const previous = candles.at(-2);
-        const referencePrice = previous?.close ?? latest?.close ?? recommendation?.entry ?? 0;
-        const price = latest?.close ?? recommendation?.entry ?? 0;
-        const changePercent =
-          price && referencePrice
-            ? ((price - referencePrice) / referencePrice) * 100
-            : 0;
-
-        return {
-          symbol,
-          price,
-          referencePrice,
-          changePercent,
-          signal: recommendation?.signal ?? "HOLD",
-          confidence: recommendation?.confidence ?? 0,
-          trend: recommendation?.trend ?? "Neutral",
-        } satisfies WatchlistItem;
+      symbols.map(async (symbol) => {
+        const candles = await getCandles(symbol, WATCHLIST_PRICE_TF, 3).catch(
+          () => [] as Candle[],
+        );
+        return [symbol, candles] as const;
       }),
     ),
-    getQuotes([...WATCHLIST_SYMBOLS], timeframe),
+    getQuotes(symbols, WATCHLIST_PRICE_TF),
   ]);
 
+  const oppMap = new Map(
+    (scannerBoard?.opportunities ?? []).map((o) => [o.symbol.toUpperCase(), o]),
+  );
+  const candleMap = new Map(candlesBySymbol);
   const quoteMap = new Map(quotes.map((q) => [q.symbol.toUpperCase(), q.mid]));
 
-  return rows.map((row) => {
-    const live = quoteMap.get(row.symbol);
-    if (live == null || live === 0) return row;
-    const reference = row.referencePrice || row.price || live;
+  const rows = symbols.map((symbol) => {
+    const upper = symbol.toUpperCase();
+    const opp = oppMap.get(upper);
+    const candles = candleMap.get(symbol) ?? [];
+    const latest = candles.at(-1);
+    const previous = candles.at(-2);
+    const referencePrice = previous?.close ?? latest?.close ?? opp?.entry ?? 0;
+    const live = quoteMap.get(upper);
+    const price = live && live > 0 ? live : latest?.close ?? opp?.price ?? 0;
+    const changePercent =
+      price && referencePrice
+        ? ((price - referencePrice) / referencePrice) * 100
+        : opp?.changePercent ?? 0;
+
+    // Prefer scanner desk signal; if missing, stand aside (do not invent BUY/SELL).
+    const signal = opp?.signal ?? "NO_TRADE";
+    const confidence = opp?.confidence ?? 0;
+    const trend = opp?.trend
+      ? normalizeTrend(opp.trend)
+      : ("Neutral" as WatchlistItem["trend"]);
+
     return {
-      ...row,
-      price: live,
-      changePercent:
-        reference > 0 ? ((live - reference) / reference) * 100 : row.changePercent,
-    };
+      symbol: upper,
+      price,
+      referencePrice,
+      changePercent,
+      signal,
+      confidence,
+      trend,
+      setupQuality: opp?.setupQuality,
+      scannerGroup: opp?.scannerGroup,
+    } satisfies WatchlistItem;
   });
+
+  // #region agent log
+  {
+    const _counts: Record<string, number> = {};
+    for (const r of rows) _counts[r.signal] = (_counts[r.signal] ?? 0) + 1;
+    fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e72fc0'},body:JSON.stringify({sessionId:'e72fc0',runId:'post-fix',hypothesisId:'C',location:'use-dashboard-data.ts:buildWatchlist',message:'Watchlist signals from scanner board',data:{sigCounts:_counts,grpCounts:rows.reduce((a,r)=>{const g=r.scannerGroup??'unset';a[g]=(a[g]??0)+1;return a;},{} as Record<string,number>),sample:rows.slice(0,8).map((r)=>({s:r.symbol,sig:r.signal,g:r.scannerGroup,q:r.setupQuality,price:r.price}))},timestamp:Date.now()})}).catch(()=>{});
+  }
+  // #endregion
+
+  return rows;
 }
 
 function mapCandle(raw: Record<string, unknown>, fallbacks: { symbol: string; timeframe: string }): Candle | null {
@@ -110,16 +158,16 @@ export function useDashboardData() {
     refetchInterval: 30_000,
   });
 
-  const recommendationQuery = useQuery({
-    queryKey: ["recommendation", "latest", symbol, timeframe],
-    queryFn: () => getLatestRecommendation(symbol, timeframe),
+  const scenarioQuery = useQuery({
+    queryKey: ["recommendation", "scenario", symbol],
+    queryFn: () => getSymbolScenario(symbol),
     enabled,
     refetchInterval: 60_000,
   });
 
   const historyQuery = useQuery({
-    queryKey: ["recommendation", "history", symbol, timeframe],
-    queryFn: () => getRecommendationHistory(symbol, timeframe, 8),
+    queryKey: ["recommendation", "history", symbol],
+    queryFn: () => getRecommendationHistory(symbol, null, 8),
     enabled,
   });
 
@@ -147,13 +195,6 @@ export function useDashboardData() {
     staleTime: 30_000,
   });
 
-  const positionsQuery = useQuery({
-    queryKey: ["trade", "positions"],
-    queryFn: getPositions,
-    enabled,
-    refetchInterval: 20_000,
-  });
-
   const candleQuery = useQuery({
     queryKey: ["market", "latest", symbol, timeframe],
     queryFn: () => getLatestCandle(symbol, timeframe),
@@ -161,53 +202,53 @@ export function useDashboardData() {
     refetchInterval: 15_000,
   });
 
-  const candlesQuery = useQuery({
-    queryKey: ["market", "candles", symbol, timeframe],
-    queryFn: () => getCandles(symbol, timeframe, 200),
-    enabled,
-    refetchInterval: 60_000,
-  });
-
   const watchlistQuery = useQuery({
-    queryKey: ["watchlist", "live", timeframe],
-    queryFn: () => buildWatchlist(timeframe),
+    queryKey: ["watchlist", "live"],
+    queryFn: () => buildWatchlist(),
     enabled,
     refetchInterval: 45_000,
   });
 
-  const quotesQuery = useQuery({
-    queryKey: ["market", "quotes", [...WATCHLIST_SYMBOLS].join(","), timeframe],
-    queryFn: () => getQuotes([...WATCHLIST_SYMBOLS], timeframe),
+  const scannerQuery = useQuery({
+    queryKey: ["scanner", "opportunities", SCANNER_PRIMARY_TF],
+    queryFn: () =>
+      getScannerOpportunities({
+        timeframe: SCANNER_PRIMARY_TF,
+        limit: 12,
+        // Show full institutional desk (includes HOLD / NO_TRADE), not only BUY/SELL.
+        actionableOnly: false,
+      }),
     enabled,
-    refetchInterval: 1_000,
-    staleTime: 500,
+    refetchInterval: 30_000,
   });
 
   const analyzeMutation = useMutation({
+    // Chart TF still used to generate analysis; hero displays best-across-TFs.
     mutationFn: () => analyzeMarket(symbol, timeframe),
-    onSuccess: (result) => {
-      if (result.recommendation) {
-        queryClient.setQueryData(
-          ["recommendation", "latest", symbol, timeframe],
-          result.recommendation,
-        );
-      }
+    onSuccess: () => {
       void queryClient.invalidateQueries({
-        queryKey: ["recommendation", "history", symbol, timeframe],
+        queryKey: ["recommendation", "scenario", symbol],
       });
-      void queryClient.invalidateQueries({ queryKey: ["watchlist", "live", timeframe] });
+      void queryClient.invalidateQueries({
+        queryKey: ["recommendation", "history", symbol],
+      });
+      void queryClient.invalidateQueries({ queryKey: ["watchlist", "live"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["scanner", "opportunities"],
+      });
     },
   });
 
   const patchWatchlistPrice = useCallback(
     (targetSymbol: string, price: number, extras?: Partial<WatchlistItem>) => {
       if (!price) return;
+      const upper = targetSymbol.toUpperCase();
       queryClient.setQueryData<WatchlistItem[]>(
-        ["watchlist", "live", timeframe],
+        ["watchlist", "live"],
         (current) => {
           if (!current) return current;
           return current.map((item) => {
-            if (item.symbol !== targetSymbol) return item;
+            if (item.symbol.toUpperCase() !== upper) return item;
             const reference = item.referencePrice || item.price || price;
             return {
               ...item,
@@ -222,99 +263,187 @@ export function useDashboardData() {
         },
       );
     },
-    [queryClient, timeframe],
+    [queryClient],
   );
 
   const onWsMessage = useCallback(
     (payload: Record<string, unknown>) => {
+      if (payload.type === "tick") {
+        const updateSymbol = String(payload.symbol ?? "").toUpperCase();
+        const mid = toNumber(payload.mid);
+        if (!updateSymbol || !mid) return;
+        patchWatchlistPrice(updateSymbol, mid);
+        queryClient.setQueryData(
+          ["scanner", "opportunities", SCANNER_PRIMARY_TF],
+          (
+            current:
+              | { opportunities: ScannerOpportunity[]; meta: unknown }
+              | undefined,
+          ) => {
+            if (!current?.opportunities) return current;
+            return {
+              ...current,
+              opportunities: current.opportunities.map((item) => {
+                if (item.symbol.toUpperCase() !== updateSymbol) return item;
+                const reference =
+                  item.price && item.changePercent != null
+                    ? item.price / (1 + item.changePercent / 100)
+                    : item.price ?? mid;
+                return {
+                  ...item,
+                  price: mid,
+                  changePercent:
+                    reference > 0
+                      ? ((mid - reference) / reference) * 100
+                      : item.changePercent,
+                };
+              }),
+            };
+          },
+        );
+        // Keep quotes cache live for every subscribed symbol (chart mid + REST fallback).
+        queryClient.setQueryData(
+          ["market", "quotes", "watchlist"],
+          (current: Awaited<ReturnType<typeof getQuotes>> | undefined) => {
+            if (!current) {
+              return [
+                {
+                  symbol: updateSymbol,
+                  bid: toNumber(payload.bid, mid),
+                  ask: toNumber(payload.ask, mid),
+                  mid,
+                  time: payload.time ? String(payload.time) : null,
+                  source: "tick" as const,
+                },
+              ];
+            }
+            const next = current.map((q) =>
+              q.symbol.toUpperCase() === updateSymbol
+                ? {
+                    ...q,
+                    bid: toNumber(payload.bid, q.bid),
+                    ask: toNumber(payload.ask, q.ask),
+                    mid,
+                    time: payload.time ? String(payload.time) : q.time,
+                    source: "tick" as const,
+                  }
+                : q,
+            );
+            if (!next.some((q) => q.symbol.toUpperCase() === updateSymbol)) {
+              next.push({
+                symbol: updateSymbol,
+                bid: toNumber(payload.bid, mid),
+                ask: toNumber(payload.ask, mid),
+                mid,
+                time: payload.time ? String(payload.time) : null,
+                source: "tick",
+              });
+            }
+            return next;
+          },
+        );
+        return;
+      }
+
       if (payload.type !== "candle_update") return;
 
       const updateSymbol = String(payload.symbol ?? "").toUpperCase();
       const updateTf = String(payload.timeframe ?? "").toUpperCase();
-      if (!updateSymbol || updateTf !== timeframe.toUpperCase()) return;
+      if (!updateSymbol || !updateTf) return;
 
       const candleRaw = payload.candle as Record<string, unknown> | undefined;
       const mappedCandle = candleRaw
         ? mapCandle(candleRaw, { symbol: updateSymbol, timeframe: updateTf })
         : null;
 
-      if (mappedCandle) {
-        patchWatchlistPrice(updateSymbol, mappedCandle.close);
-
+      // Chart candles only for the selected chart timeframe.
+      if (updateTf === timeframe.toUpperCase() && mappedCandle) {
         if (updateSymbol === symbol.toUpperCase()) {
           queryClient.setQueryData(
             ["market", "latest", symbol, timeframe],
             mappedCandle,
           );
-          queryClient.setQueryData<Candle[]>(
-            ["market", "candles", symbol, timeframe],
-            (current) => {
-              if (!current || current.length === 0) return [mappedCandle];
-              const next = [...current];
-              const last = next[next.length - 1];
-              if (last && last.time === mappedCandle.time) {
-                next[next.length - 1] = mappedCandle;
-              } else {
-                next.push(mappedCandle);
-                if (next.length > 300) next.shift();
-              }
-              return next;
-            },
-          );
         }
       }
 
-      if (payload.recommendation && updateSymbol === symbol.toUpperCase()) {
-        const mapped = mapRecommendation(
-          payload.recommendation as Record<string, unknown>,
-          { symbol, timeframe },
-        );
-        if (mapped) {
-          queryClient.setQueryData(
-            ["recommendation", "latest", symbol, timeframe],
-            mapped,
-          );
-          patchWatchlistPrice(updateSymbol, mapped.entry || mappedCandle?.close || 0, {
-            signal: mapped.signal,
-            confidence: mapped.confidence,
-            trend: mapped.trend,
+      // Price ticks from any TF candle still refresh watchlist mid.
+      if (mappedCandle) {
+        patchWatchlistPrice(updateSymbol, mappedCandle.close);
+      }
+
+      // Do NOT patch watchlist signal from raw candle recommendation —
+      // that bypasses institutional scanner demotion (HOLD/NO_TRADE).
+      // Refresh desk signals from the scanner board instead.
+      if (payload.recommendation) {
+        // #region agent log
+        fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'e72fc0'},body:JSON.stringify({sessionId:'e72fc0',runId:'post-fix',hypothesisId:'C',location:'use-dashboard-data.ts:candle_update',message:'Skip raw rec signal patch; invalidate watchlist',data:{symbol:updateSymbol,tf:updateTf,rawSignal:(payload.recommendation as Record<string,unknown>).signal},timestamp:Date.now()})}).catch(()=>{});
+        // #endregion
+        void queryClient.invalidateQueries({ queryKey: ["watchlist", "live"] });
+        void queryClient.invalidateQueries({
+          queryKey: ["scanner", "opportunities"],
+        });
+        if (updateSymbol === symbol.toUpperCase()) {
+          void queryClient.invalidateQueries({
+            queryKey: ["recommendation", "scenario", symbol],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["recommendation", "history", symbol],
           });
         }
-      } else if (payload.recommendation) {
-        const rec = payload.recommendation as Record<string, unknown>;
-        patchWatchlistPrice(
-          updateSymbol,
-          toNumber(rec.entry) || mappedCandle?.close || 0,
-          {
-            signal: normalizeSignal(rec.signal),
-            confidence: Math.round(toNumber(rec.confidence)),
-            trend: normalizeTrend(rec.trend),
-          },
-        );
       }
     },
     [patchWatchlistPrice, queryClient, symbol, timeframe],
   );
 
+  const wsSymbols = useMemo(() => {
+    const fromWatchlist = (watchlistQuery.data ?? []).map((item) => item.symbol);
+    const fromScanner = (scannerQuery.data?.opportunities ?? []).map(
+      (item) => item.symbol,
+    );
+    const merged = [
+      ...new Set(
+        [...fromWatchlist, ...fromScanner]
+          .map((s) => s.toUpperCase())
+          .filter(Boolean),
+      ),
+    ];
+    return merged.length > 0 ? merged : [...MARKET_SYMBOLS];
+  }, [scannerQuery.data?.opportunities, watchlistQuery.data]);
+
   const { connected: wsConnected } = useMarketWebSocket({
-    symbols: [...WATCHLIST_SYMBOLS],
+    symbols: wsSymbols,
     timeframe,
     onMessage: onWsMessage,
     enabled,
   });
 
-  // Merge fast quote poll into watchlist so all pairs tick live
+  const quotesQuery = useQuery({
+    queryKey: ["market", "quotes", "watchlist"],
+    queryFn: async () => {
+      const symbols = await resolveWatchlistSymbols();
+      return getQuotes(symbols, WATCHLIST_PRICE_TF);
+    },
+    enabled,
+    // Prefer WS ticks when connected; keep a short REST poll as fallback.
+    refetchInterval: wsConnected ? 3_000 : 1_000,
+    staleTime: wsConnected ? 1_000 : 500,
+  });
+
+  // When WS is live, watchlist prices come from tick patches.
+  // When disconnected, merge REST quotes so pairs still move.
   const watchlist = useMemo(() => {
     const base = watchlistQuery.data ?? [];
+    if (wsConnected || base.length === 0) return base;
+
     const quotes = quotesQuery.data ?? [];
-    if (base.length === 0 || quotes.length === 0) return base;
+    if (quotes.length === 0) return base;
 
     const quoteMap = new Map(
       quotes.map((q) => [q.symbol.toUpperCase(), q.mid] as const),
     );
 
     return base.map((item) => {
-      const mid = quoteMap.get(item.symbol);
+      const mid = quoteMap.get(item.symbol.toUpperCase());
       if (mid == null || mid === 0) return item;
       const reference = item.referencePrice || item.price || mid;
       return {
@@ -324,40 +453,90 @@ export function useDashboardData() {
           reference > 0 ? ((mid - reference) / reference) * 100 : item.changePercent,
       };
     });
-  }, [quotesQuery.data, watchlistQuery.data]);
+  }, [quotesQuery.data, watchlistQuery.data, wsConnected]);
 
-  const recommendation = recommendationQuery.data ?? null;
-  const candles = candlesQuery.data ?? [];
+  const scenario = scenarioQuery.data ?? null;
+  const recommendation = scenario?.best ?? null;
+  const timeframeSignals: TimeframeSignalSnapshot[] = scenario?.byTimeframe ?? [];
   const quoteMid =
     quotesQuery.data?.find((q) => q.symbol.toUpperCase() === symbol.toUpperCase())
       ?.mid ?? 0;
 
-  const baseLiveCandle = candleQuery.data ?? candles.at(-1) ?? null;
+  const symbolUpper = symbol.toUpperCase();
+  const timeframeUpper = timeframe.toUpperCase();
+
+  const queryCandle =
+    candleQuery.data &&
+    candleQuery.data.symbol?.toUpperCase() === symbolUpper &&
+    candleQuery.data.timeframe?.toUpperCase() === timeframeUpper
+      ? candleQuery.data
+      : null;
+
   const liveCandle =
-    baseLiveCandle && quoteMid
-      ? applyQuoteToCandle(baseLiveCandle, quoteMid)
-      : baseLiveCandle;
+    queryCandle && quoteMid
+      ? applyQuoteToCandle(queryCandle, quoteMid)
+      : queryCandle;
 
   const marketStatus: MarketStatus = useMemo(() => {
     const score = recommendation?.confluence ?? recommendation?.confidence ?? 0;
     const volatility: MarketStatus["volatility"] =
       score >= 80 ? "High" : score >= 55 ? "Medium" : "Low";
+    const hours = getMarketHours(symbol);
 
     return {
       session: currentSession(),
       volatility,
-      marketOpen: healthQuery.data?.status === "healthy",
+      marketOpen: hours.open,
+      marketReason: hours.reason,
       score,
       feedConnected: healthQuery.data?.status === "healthy",
       wsConnected,
     };
-  }, [healthQuery.data?.status, recommendation, wsConnected]);
+  }, [healthQuery.data?.status, recommendation, symbol, wsConnected]);
+
+  const newsSyncedRef = useRef(false);
+  const newsFetched = newsQuery.isFetched;
+  const calendarFetched = calendarQuery.isFetched;
+  const newsEmpty = (newsQuery.data?.length ?? 0) === 0;
+  const calendarEmpty = (calendarQuery.data?.length ?? 0) === 0;
+
+  useEffect(() => {
+    if (!enabled || newsSyncedRef.current) return;
+    if (!newsFetched || !calendarFetched) return;
+    if (!newsEmpty && !calendarEmpty) {
+      newsSyncedRef.current = true;
+      return;
+    }
+    newsSyncedRef.current = true;
+    void syncNewsFeeds()
+      .then(() => {
+        void queryClient.invalidateQueries({ queryKey: ["news"] });
+      })
+      .catch(() => {
+        /* sync may require admin — ignore */
+      });
+  }, [
+    calendarEmpty,
+    calendarFetched,
+    enabled,
+    newsEmpty,
+    newsFetched,
+    queryClient,
+  ]);
 
   const newsHeadlines = useMemo(() => {
     const fromNews = newsQuery.data ?? [];
     if (fromNews.length > 0) return fromNews;
-    return (calendarQuery.data ?? []).filter((item) => item.impact === "High");
+    const calendar = calendarQuery.data ?? [];
+    const high = calendar.filter((item) => item.impact === "High");
+    return high.length > 0 ? high : calendar;
   }, [calendarQuery.data, newsQuery.data]);
+
+  const newsDataUpdatedAt = Math.max(
+    newsQuery.dataUpdatedAt ?? 0,
+    newsContextQuery.dataUpdatedAt ?? 0,
+    calendarQuery.dataUpdatedAt ?? 0,
+  );
 
   const calendarEvents = useMemo(
     () => calendarQuery.data ?? [],
@@ -365,30 +544,8 @@ export function useDashboardData() {
   );
 
   const scanner: ScannerOpportunity[] = useMemo(() => {
-    return watchlist
-      .map((item) => {
-        const changeAbs = Math.abs(item.changePercent);
-        const momentumBoost = Math.min(20, Math.round(changeAbs * 8));
-        const score = Math.min(99, item.confidence + momentumBoost);
-        return {
-          id: `${item.symbol}-${timeframe}`,
-          symbol: item.symbol,
-          signal: item.signal,
-          confidence: score,
-          timeframe,
-          session: marketStatus.session,
-          reason:
-            item.signal !== "HOLD"
-              ? `${item.trend} · ${item.changePercent >= 0 ? "+" : ""}${item.changePercent.toFixed(2)}% · live`
-              : `${item.trend} · scanning momentum`,
-          price: item.price,
-          changePercent: item.changePercent,
-        };
-      })
-      .filter((item) => item.confidence >= 45 || item.signal !== "HOLD")
-      .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 12);
-  }, [marketStatus.session, timeframe, watchlist]);
+    return scannerQuery.data?.opportunities ?? [];
+  }, [scannerQuery.data?.opportunities]);
 
   const activity: ActivityEvent[] = useMemo(() => {
     const events: ActivityEvent[] = [];
@@ -417,30 +574,20 @@ export function useDashboardData() {
       events.push({
         id: "ws-live",
         title: "Live stream connected",
-        description: `Subscribed to ${WATCHLIST_SYMBOLS.length} pairs · ${timeframe}`,
+        description: `Subscribed to ${wsSymbols.length} pairs · ${timeframe}`,
         time: "now",
         tone: "system",
       });
     }
 
-    (positionsQuery.data ?? []).slice(0, 2).forEach((position) => {
-      events.push({
-        id: `pos-${position.id}`,
-        title: "Open position",
-        description: `${position.symbol} ${position.side}`,
-        time: "live",
-        tone: "trade",
-      });
-    });
-
     return events.slice(0, 6);
   }, [
     liveCandle,
-    positionsQuery.data,
     recommendation,
     symbol,
     timeframe,
     wsConnected,
+    wsSymbols.length,
   ]);
 
   return {
@@ -449,14 +596,15 @@ export function useDashboardData() {
     timeframe,
     health: healthQuery.data,
     recommendation,
+    timeframeSignals,
     recentRecommendations: historyQuery.data ?? ([] as Recommendation[]),
     newsContext: newsContextQuery.data,
     newsHeadlines,
     calendarEvents,
     newsRefreshing: newsQuery.isFetching || calendarQuery.isFetching,
-    positions: positionsQuery.data ?? [],
+    newsDataUpdatedAt,
+    quotes: quotesQuery.data ?? [],
     watchlist,
-    candles,
     liveCandle,
     scanner,
     activity,
@@ -464,28 +612,27 @@ export function useDashboardData() {
     wsConnected,
     isLoading:
       enabled &&
-      (recommendationQuery.isLoading ||
+      (scenarioQuery.isLoading ||
         watchlistQuery.isLoading ||
         newsQuery.isLoading),
-    isFetching: recommendationQuery.isFetching || watchlistQuery.isFetching,
+    isFetching: scenarioQuery.isFetching || watchlistQuery.isFetching,
     error:
-      recommendationQuery.error?.message ||
+      scenarioQuery.error?.message ||
       watchlistQuery.error?.message ||
       null,
     analyze: analyzeMutation.mutateAsync,
     analyzing: analyzeMutation.isPending,
     refetchAll: async () => {
       await Promise.all([
-        recommendationQuery.refetch(),
+        scenarioQuery.refetch(),
         historyQuery.refetch(),
         watchlistQuery.refetch(),
+        scannerQuery.refetch(),
         quotesQuery.refetch(),
         newsQuery.refetch(),
         newsContextQuery.refetch(),
         calendarQuery.refetch(),
-        positionsQuery.refetch(),
         candleQuery.refetch(),
-        candlesQuery.refetch(),
         healthQuery.refetch(),
       ]);
     },

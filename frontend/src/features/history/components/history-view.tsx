@@ -27,16 +27,19 @@ const SIGNAL_FILTERS: Array<"ALL" | Signal> = [
 
 export function HistoryView() {
   const user = useAuthStore((s) => s.user);
-  const symbol = useDashboardStore((s) => s.symbol);
+  const storeSymbol = useDashboardStore((s) => s.symbol);
   const timeframe = useDashboardStore((s) => s.timeframe);
   const setSymbol = useDashboardStore((s) => s.setSymbol);
   const setTimeframe = useDashboardStore((s) => s.setTimeframe);
+  const [symbolFilter, setSymbolFilter] = useState(storeSymbol);
   const [signalFilter, setSignalFilter] = useState<(typeof SIGNAL_FILTERS)[number]>("ALL");
   const [minConfidence, setMinConfidence] = useState(0);
 
+  const historySymbol = symbolFilter === "ALL" ? null : symbolFilter;
+
   const historyQuery = useQuery({
-    queryKey: ["recommendation", "history", symbol, timeframe, 50],
-    queryFn: () => getRecommendationHistory(symbol, timeframe, 50),
+    queryKey: ["recommendation", "history", symbolFilter, timeframe, 50],
+    queryFn: () => getRecommendationHistory(historySymbol, timeframe, 50),
     enabled: Boolean(user),
     refetchInterval: 60_000,
   });
@@ -46,6 +49,8 @@ export function HistoryView() {
       .filter((item) => (signalFilter === "ALL" ? true : item.signal === signalFilter))
       .filter((item) => item.confidence >= minConfidence);
   }, [historyQuery.data, minConfidence, signalFilter]);
+
+  const label = symbolFilter === "ALL" ? "all pairs" : symbolFilter;
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-4">
@@ -58,15 +63,20 @@ export function HistoryView() {
             Recommendation history
           </h1>
           <p className="mt-1 text-sm text-muted">
-            Filterable timeline for {symbol} {timeframe}
+            Filterable timeline for {label} {timeframe}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
-            value={symbol}
-            onChange={(event) => setSymbol(event.target.value)}
+            value={symbolFilter}
+            onChange={(event) => {
+              const next = event.target.value;
+              setSymbolFilter(next);
+              if (next !== "ALL") setSymbol(next);
+            }}
             className="h-9 rounded-sm border border-border bg-panel px-3 font-mono text-sm outline-none focus:border-primary/50"
           >
+            <option value="ALL">ALL</option>
             {MARKET_SYMBOLS.map((item) => (
               <option key={item} value={item}>
                 {item}
@@ -147,9 +157,10 @@ export function HistoryView() {
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-mono text-sm font-semibold">
-                      {item.symbol} · {item.timeframe}
+                    <p className="font-mono text-sm font-semibold tracking-wide text-primary">
+                      {item.symbol}
                     </p>
+                    <p className="font-mono text-sm text-muted-foreground">{item.timeframe}</p>
                     <SignalBadge signal={item.signal} />
                     <Badge tone="default">{item.risk} risk</Badge>
                   </div>

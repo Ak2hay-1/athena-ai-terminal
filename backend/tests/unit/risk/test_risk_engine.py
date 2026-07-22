@@ -44,13 +44,14 @@ def _ctx(**overrides) -> StructureContext:
 
 def test_sideways_returns_no_trade():
     engine = RiskEngine()
-    plan = engine.build_plan(
+    bundle = engine.build_plan(
         pd.DataFrame({"close": [1.0]}),
         symbol="EURUSD",
         timeframe="M5",
         context=_ctx(trend="SIDEWAYS"),
     )
-    assert plan.signal == "NO_TRADE"
+    assert bundle.plan.signal == "NO_TRADE"
+    assert bundle.context.trend == "SIDEWAYS"
 
 
 def test_buy_plan_when_services_approve(monkeypatch):
@@ -125,18 +126,20 @@ def test_buy_plan_when_services_approve(monkeypatch):
         ),
     )
 
-    plan = engine.build_plan(
+    bundle = engine.build_plan(
         pd.DataFrame({"close": [162.5]}),
         symbol="USDJPY",
         timeframe="M5",
         context=_ctx(),
     )
+    plan = bundle.plan
     assert plan.signal == "BUY"
     assert plan.entry == 162.50
     assert plan.stop_loss == 162.20
     assert plan.take_profit == 163.10
     assert plan.confidence == 87
     assert plan.sl_reason.startswith("Below")
+    assert bundle.context.symbol == "USDJPY"
 
 
 def test_validation_failure_returns_no_trade(monkeypatch):
@@ -200,11 +203,12 @@ def test_validation_failure_returns_no_trade(monkeypatch):
         ),
     )
 
-    plan = engine.build_plan(
+    bundle = engine.build_plan(
         pd.DataFrame({"close": [162.5]}),
         symbol="USDJPY",
         timeframe="M5",
         context=_ctx(trend="BULLISH"),
     )
+    plan = bundle.plan
     assert plan.signal == "NO_TRADE"
     assert "Trend" in plan.reasons[0]

@@ -93,7 +93,7 @@ class _GeminiMock:
 
 def _context() -> MarketContext:
     return MarketContext(
-        symbol="BTCUSDT",
+        symbol="XAUUSD",
         timeframe="1H",
         trend="Bullish",
         trade_candidate=TradeCandidate(signal="BUY", confidence=88),

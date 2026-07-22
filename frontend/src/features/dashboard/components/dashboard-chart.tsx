@@ -1,47 +1,37 @@
 "use client";
 
-import Link from "next/link";
-import { PriceChart } from "@/features/markets/components/price-chart";
+import { BasicRangeChart } from "@/features/markets/components/chart/basic-range-chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Candle } from "@/types";
 
 interface Props {
   symbol: string;
-  timeframe: string;
-  candles: Candle[];
-  liveCandle: Candle | null;
+  timeframe?: string;
+  enabled?: boolean;
 }
 
 export function DashboardChart({
   symbol,
   timeframe,
-  candles,
-  liveCandle,
+  enabled = true,
 }: Props) {
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between gap-3">
+    <Card className="overflow-hidden">
+      <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 py-3">
         <div>
-          <CardTitle>
-            {symbol} · {timeframe}
-          </CardTitle>
-          <p className="mt-1 text-xs text-muted">Live candlestick chart</p>
+          <CardTitle className="font-mono text-sm">{symbol}</CardTitle>
+          <p className="mt-0.5 text-[11px] text-muted">
+            Overview · open advanced chart for full tools
+          </p>
         </div>
-        <Link
-          href={`/markets/${symbol.toLowerCase()}`}
-          className="text-xs text-primary hover:underline"
-        >
-          Open market
-        </Link>
       </CardHeader>
-      <CardContent>
-        {candles.length > 0 ? (
-          <PriceChart candles={candles} liveCandle={liveCandle} height={320} />
-        ) : (
-          <div className="flex h-[320px] items-center justify-center rounded-xl border border-dashed border-border text-sm text-muted">
-            No candle data yet for {symbol} {timeframe}
-          </div>
-        )}
+      <CardContent className="p-0">
+        <BasicRangeChart
+          symbol={symbol}
+          chartTf={timeframe}
+          enabled={enabled}
+          height={280}
+          className="rounded-none border-0 border-t"
+        />
       </CardContent>
     </Card>
   );

@@ -11,10 +11,17 @@ import {
   Search,
   Sparkles,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { adminNav, primaryNav } from "@/constants/navigation";
+import { useDerivedAlerts } from "@/features/alerts/hooks/use-derived-alerts";
+import {
+  getRecentNotifications,
+  isUnreadNotification,
+} from "@/services/notifications";
 import { useAuthStore } from "@/store/auth-store";
 import { useUiStore } from "@/store/ui-store";
+import { AutoTradeControl } from "@/features/trading/components/auto-trade-control";
 
 interface TopbarProps {
   title?: string;
@@ -52,6 +59,18 @@ export function Topbar({ title, subtitle }: TopbarProps) {
   const rightPanel = useUiStore((s) => s.rightPanel);
   const toggleRightPanel = useUiStore((s) => s.toggleRightPanel);
   const setNotificationsOpen = useUiStore((s) => s.setNotificationsOpen);
+  const setSearchOpen = useUiStore((s) => s.setSearchOpen);
+
+  const { highCount } = useDerivedAlerts({ enabled: Boolean(user) });
+  const inboxQuery = useQuery({
+    queryKey: ["notifications", "recent"],
+    queryFn: () => getRecentNotifications(40),
+    enabled: Boolean(user),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+  const unreadInbox = (inboxQuery.data ?? []).filter(isUnreadNotification).length;
+  const badgeCount = highCount + unreadInbox;
 
   const initials = (user?.full_name || user?.username || "AT")
     .split(" ")
@@ -92,17 +111,30 @@ export function Topbar({ title, subtitle }: TopbarProps) {
       </div>
 
       <div className="hidden max-w-md flex-1 md:block">
-        <label className="relative block">
+        <button
+          type="button"
+          onClick={() => setSearchOpen(true)}
+          className="relative flex h-8 w-full items-center rounded-sm border border-border bg-panel pr-3 pl-9 text-left text-sm text-muted-foreground outline-none transition-colors hover:border-primary/50"
+        >
           <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="search"
-            placeholder="Search markets, recommendations, journals…"
-            className="h-8 w-full rounded-sm border border-border bg-panel pr-3 pl-9 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50"
-          />
-        </label>
+          <span className="truncate">Search markets, recommendations, journals…</span>
+          <kbd className="ml-auto hidden rounded-sm border border-border px-1.5 py-0.5 text-[10px] lg:inline">
+            Ctrl K
+          </kbd>
+        </button>
       </div>
 
       <div className="flex items-center gap-1.5">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden"
+          onClick={() => setSearchOpen(true)}
+          aria-label="Search"
+        >
+          <Search className="h-4 w-4" />
+        </Button>
+        <AutoTradeControl />
         <Button variant="ai" size="sm" className="hidden sm:inline-flex" asChild>
           <Link href="/ai">
             <Sparkles className="h-3.5 w-3.5" />
@@ -114,8 +146,14 @@ export function Topbar({ title, subtitle }: TopbarProps) {
           size="icon"
           onClick={() => setNotificationsOpen(true)}
           aria-label="Notifications"
+          className="relative"
         >
           <Bell className="h-4 w-4" />
+          {badgeCount > 0 ? (
+            <span className="absolute top-1 right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[9px] font-semibold text-black">
+              {badgeCount > 9 ? "9+" : badgeCount}
+            </span>
+          ) : null}
         </Button>
         <Button
           variant="ghost"

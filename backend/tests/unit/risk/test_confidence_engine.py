@@ -65,3 +65,23 @@ def test_counter_trend_and_news_block_reduce_score():
 def test_weights_sum_to_100():
     engine = ConfidenceEngine()
     assert sum(engine.WEIGHTS.values()) == 100
+
+
+def test_score_components_keys_and_consistency():
+    engine = ConfidenceEngine()
+    components = engine.score_components(
+        _ctx(),
+        TradeDirection.BUY,
+        at_liquidity_tp=True,
+        structure_sl=True,
+        risk_reward=2.5,
+    )
+    assert set(components) == set(engine.WEIGHTS)
+    score = engine.score(
+        _ctx(),
+        TradeDirection.BUY,
+        at_liquidity_tp=True,
+        structure_sl=True,
+        risk_reward=2.5,
+    )
+    assert abs(sum(components.values()) - score) < 0.51

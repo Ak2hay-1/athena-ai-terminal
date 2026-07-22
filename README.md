@@ -10,7 +10,7 @@ AI-powered trading intelligence platform for MetaTrader 5 and forex markets (pri
 - **Analysis** — Indicators, SMC patterns (FVG, order blocks, BOS/CHoCH), confluence scoring
 - **AI recommendations** — Provider-agnostic narrative layer (Gemini / OpenAI / Claude / DeepSeek / Grok / Local) with Redis response caching; risk engine owns trade levels
 - **News** — RSS sync, sentiment weighting, pre-event trade blocks
-- **Trading** — Paper execution by default; MT5 execution provider available
+- **Trading** — MT5 limit-order execution (BUY_LIMIT / SELL_LIMIT)
 - **Learning** — Adaptive signal model (scikit-learn) with periodic retrain
 - **Auth** — JWT register / login / refresh; role-aware admin bootstrap
 - **Frontend** — Next.js trading terminal (dashboard, markets, charts, AI, scanner, settings)
@@ -39,6 +39,8 @@ athena-ai-terminal/
 
 ## Quick start
 
+For a step-by-step local readiness checklist (env, MT5, AI, trade smoke test), see [READY.md](READY.md).
+
 ### Option A — Docker (API + infra)
 
 ```bash
@@ -47,13 +49,14 @@ docker compose up
 
 | Service | URL |
 |---------|-----|
+| Frontend | http://localhost:3000 |
 | API | http://localhost:8000 |
 | OpenAPI docs | http://localhost:8000/docs |
 | Health | http://localhost:8000/api/v1/health |
 | pgAdmin | http://localhost:5050 |
 | Ollama | http://localhost:11434 |
 
-> MT5 is Windows-native. Full live market features need a local Windows MT5 terminal; the API container can run without it for non-MT5 paths.
+> MT5 is Windows-native. Full live market features need a local Windows MT5 terminal; the API container can run without it for non-MT5 paths. Set a strong `SECRET_KEY` in `backend/.env` before sharing the stack. Compose overrides `DATABASE_URL` / `REDIS_URL` / `OLLAMA_HOST` for the API container and runs `alembic upgrade head` on start.
 
 ### Option B — Local backend
 
@@ -111,14 +114,14 @@ All REST routes are under `/api/v1`:
 | `/portfolio` | Portfolio summary |
 | `/risk` | Risk metrics / validation |
 
-WebSocket: `WS /ws` — subscribe to `{SYMBOL}:{TIMEFRAME}` candle updates.
+WebSocket: `WS /ws?token=<access_jwt>` — subscribe to `{SYMBOL}:{TIMEFRAME}` candle updates (JWT required).
 
 ## Configuration
 
 - Backend: copy `backend/.env.example` → `backend/.env`
 - Frontend: copy `frontend/.env.example` → `frontend/.env.local`
 
-Key backend knobs: `DATABASE_URL`, JWT secrets, `MT5_*`, `MARKET_SYMBOLS`, `OLLAMA_*`, `EXECUTION_PROVIDER` (`paper` default), news and learning settings. See [Environment Variables Reference](docs/New%20Documentation/35_Environment_Variables_Reference.md).
+Key backend knobs: `DATABASE_URL`, JWT secrets, `MT5_*`, `MARKET_SYMBOLS`, `OLLAMA_*`, `EXECUTION_PROVIDER` (`mt5` default), news and learning settings. See [Environment Variables Reference](docs/New%20Documentation/35_Environment_Variables_Reference.md).
 
 ## Documentation
 
@@ -141,7 +144,7 @@ Frontend-specific notes: [frontend/README.md](frontend/README.md).
 - Backend tests: `cd backend && pytest`
 - Frontend build: `cd frontend && npm run build`
 - CORS defaults include `http://localhost:3000`
-- Paper trading is the safe default; point `EXECUTION_PROVIDER` at MT5 only when intentionally live
+- Trading requires a working MT5 terminal and `EXECUTION_PROVIDER=mt5`
 
 ## License
 

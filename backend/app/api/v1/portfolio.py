@@ -9,7 +9,7 @@ from fastapi import Depends
 
 from app.auth.dependencies import require_trader
 from app.models.user import User
-from app.trading.paper_execution import paper_execution
+from app.trading.order_manager import order_manager
 
 router = APIRouter(
     prefix="/portfolio",
@@ -19,15 +19,15 @@ router = APIRouter(
 
 @router.get(
     "/summary",
-    summary="Paper portfolio summary",
+    summary="Portfolio summary",
 )
 def portfolio_summary(
-    _: User = Depends(require_trader),
+    user: User = Depends(require_trader),
 ):
-    positions = paper_execution.positions()
+    positions = order_manager.positions(user_id=user.id)
 
     return {
         "open_positions": len(positions),
         "positions": positions,
-        "execution_provider": "paper",
+        "execution_provider": order_manager.provider,
     }

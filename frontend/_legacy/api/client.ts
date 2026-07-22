@@ -91,9 +91,6 @@ export async function login(
   password: string,
 ): Promise<TokenResponse> {
   const url = `${API_URL}/auth/login`
-  // #region agent log
-  fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'300484'},body:JSON.stringify({sessionId:'300484',runId:'pre-fix',hypothesisId:'A',location:'_legacy/client.ts:login',message:'login fetch start',data:{apiUrl:API_URL,url},timestamp:Date.now()})}).catch(()=>{})
-  // #endregion
   let response: Response
   try {
     response = await fetch(url, {
@@ -102,15 +99,9 @@ export async function login(
       body: JSON.stringify({ username, password }),
     })
   } catch (err) {
-    // #region agent log
-    fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'300484'},body:JSON.stringify({sessionId:'300484',runId:'pre-fix',hypothesisId:'A',location:'_legacy/client.ts:login',message:'login network error',data:{apiUrl:API_URL,error:err instanceof Error?err.message:String(err)},timestamp:Date.now()})}).catch(()=>{})
-    // #endregion
     throw err
   }
 
-  // #region agent log
-  fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'300484'},body:JSON.stringify({sessionId:'300484',runId:'pre-fix',hypothesisId:'C',location:'_legacy/client.ts:login',message:'login response',data:{status:response.status,ok:response.ok},timestamp:Date.now()})}).catch(()=>{})
-  // #endregion
 
   if (!response.ok) {
     throw new Error('Login failed')
@@ -127,18 +118,12 @@ export async function register(payload: {
   full_name: string
   password: string
 }): Promise<User> {
-  // #region agent log
-  fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'300484'},body:JSON.stringify({sessionId:'300484',runId:'pre-fix',hypothesisId:'A',location:'_legacy/client.ts:register',message:'register start',data:{apiUrl:API_URL,passwordLen:payload.password.length},timestamp:Date.now()})}).catch(()=>{})
-  // #endregion
   try {
     return await apiFetch<User>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(payload),
     })
   } catch (err) {
-    // #region agent log
-    fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'300484'},body:JSON.stringify({sessionId:'300484',runId:'pre-fix',hypothesisId:'C',location:'_legacy/client.ts:register',message:'register failed',data:{error:err instanceof Error?err.message.slice(0,300):String(err)},timestamp:Date.now()})}).catch(()=>{})
-    // #endregion
     throw err
   }
 }

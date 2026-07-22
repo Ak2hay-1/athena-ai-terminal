@@ -1,5 +1,6 @@
 import { AuthGate } from "@/components/auth/auth-gate";
-import { AppShell } from "@/components/layout/app-shell";
+import { DisclaimerGate } from "@/components/auth/disclaimer-gate";
+import { PlatformChrome } from "@/components/layout/platform-chrome";
 
 export default function PlatformLayout({
   children,
@@ -8,7 +9,9 @@ export default function PlatformLayout({
 }) {
   return (
     <AuthGate>
-      <AppShell>{children}</AppShell>
+      <DisclaimerGate>
+        <PlatformChrome>{children}</PlatformChrome>
+      </DisclaimerGate>
     </AuthGate>
   );
 }

@@ -1,13 +1,19 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MARKET_SYMBOLS, TIMEFRAMES, priceDigitsFor } from "@/constants/markets";
+import {
+  AiChat,
+  type AiChatBubble,
+} from "@/features/ai/components/ai-chat";
+import { MarketSummary } from "@/features/ai/components/market-summary";
+import { getSuggestedPrompts } from "@/lib/ai-prompts";
 import { formatPercent, formatPrice } from "@/lib/utils";
+import { chatWithAthena } from "@/services/ai";
 import { getNewsContext } from "@/services/news";
 import {
   analyzeMarket,
@@ -16,97 +22,25 @@ import {
 import { useAuthStore } from "@/store/auth-store";
 import { useDashboardStore } from "@/store/dashboard-store";
 
-const suggestedPrompts = [
-  "Analyze current setup",
-  "Why this signal?",
-  "Explain today's news risk",
-  "Show risk plan",
-  "Compare confidence drivers",
-];
-
-type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-};
-
-function buildContextReply(input: {
-  prompt: string;
-  symbol: string;
-  timeframe: string;
-  recommendation: Awaited<ReturnType<typeof getLatestRecommendation>>;
-  news: Awaited<ReturnType<typeof getNewsContext>> | undefined;
-  analyzeNote?: string;
-}): string {
-  const { prompt, symbol, timeframe, recommendation, news, analyzeNote } = input;
-  const lower = prompt.toLowerCase();
-
-  if (analyzeNote) {
-    return analyzeNote;
-  }
-
-  if (!recommendation) {
-    return `No live recommendation for ${symbol} ${timeframe} yet. Try “Analyze current setup” to run Athena’s pipeline.`;
-  }
-
-  const digits = priceDigitsFor(symbol, recommendation.entry);
-  const plan = [
-    `Signal: ${recommendation.signal} (${formatPercent(recommendation.confidence)})`,
-    `Trend: ${recommendation.trend} · Risk: ${recommendation.risk}`,
-    `Entry ${formatPrice(recommendation.entry, digits)} · SL ${formatPrice(recommendation.stopLoss, digits)} · TP ${formatPrice(recommendation.takeProfit, digits)}`,
-    `RR ${recommendation.riskReward.toFixed(2)}x`,
-  ].join("\n");
-
-  if (lower.includes("why") || lower.includes("signal") || lower.includes("reason")) {
-    const reasons =
-      recommendation.reasons.length > 0
-        ? recommendation.reasons.map((r) => `• ${r}`).join("\n")
-        : "• Confluence and structure currently favor this bias.";
-    return `${plan}\n\nDrivers:\n${reasons}`;
-  }
-
-  if (lower.includes("news") || lower.includes("risk window") || lower.includes("calendar")) {
-    const headlines =
-      news?.headlines?.length
-        ? news.headlines.slice(0, 4).map((h) => `• ${h}`).join("\n")
-        : "• No headline context loaded.";
-    return [
-      `News sentiment for ${symbol}: ${news?.sentiment ?? "NEUTRAL"} (score ${news?.score ?? 0}).`,
-      news?.highImpactUpcoming
-        ? "High-impact event window is approaching — size down or wait."
-        : "No immediate high-impact block flagged.",
-      "",
-      "Headlines:",
-      headlines,
-    ].join("\n");
-  }
-
-  if (lower.includes("risk") || lower.includes("plan") || lower.includes("sl") || lower.includes("tp")) {
-    return `${plan}\n\nUse the stop as hard invalidation. Athena evaluates — you decide size and timing.`;
-  }
-
-  return `${plan}\n\nAsk about reasons, news risk, or run a fresh analysis.`;
-}
-
 export function AiChatView() {
   const user = useAuthStore((s) => s.user);
   const symbol = useDashboardStore((s) => s.symbol);
   const timeframe = useDashboardStore((s) => s.timeframe);
   const setSymbol = useDashboardStore((s) => s.setSymbol);
   const setTimeframe = useDashboardStore((s) => s.setTimeframe);
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const searchParams = useSearchParams();
+  const bootstrappedQ = useRef(false);
+  const [messages, setMessages] = useState<AiChatBubble[]>([
     {
       id: "welcome",
       role: "assistant",
-      content:
-        "Athena AI is connected to live recommendations and news context. Ask about setups, risk, or run an analysis.",
+      content: `Athena AI is loaded for ${symbol} ${timeframe}. Ask about setups, risk, or run an analysis.`,
     },
   ]);
 
   const recommendationQuery = useQuery({
-    queryKey: ["recommendation", "latest", symbol, timeframe],
-    queryFn: () => getLatestRecommendation(symbol, timeframe),
+    queryKey: ["recommendation", "latest", symbol],
+    queryFn: () => getLatestRecommendation(symbol),
     enabled: Boolean(user),
     refetchInterval: 60_000,
   });
@@ -122,93 +56,100 @@ export function AiChatView() {
     mutationFn: () => analyzeMarket(symbol, timeframe),
   });
 
+  const suggestedPrompts = useMemo(
+    () =>
+      getSuggestedPrompts(symbol, timeframe, recommendationQuery.data?.signal),
+    [recommendationQuery.data?.signal, symbol, timeframe],
+  );
+
   const contextBadge = useMemo(() => {
     const rec = recommendationQuery.data;
     if (!rec) return "Awaiting signal";
     return `${rec.signal} · ${formatPercent(rec.confidence)}`;
   }, [recommendationQuery.data]);
 
-  async function respond(prompt: string) {
-    const trimmed = prompt.trim();
-    if (!trimmed) return;
+  useEffect(() => {
+    const q = searchParams.get("q")?.trim();
+    if (!q || bootstrappedQ.current) return;
+    bootstrappedQ.current = true;
 
-    const userMsg: ChatMessage = {
-      id: `u-${Date.now()}`,
+    const userMsg: AiChatBubble = {
+      id: `u-q-${Date.now()}`,
       role: "user",
-      content: trimmed,
+      content: q,
     };
     setMessages((prev) => [...prev, userMsg]);
-    setInput("");
 
-    let analyzeNote: string | undefined;
-    const wantsAnalyze =
-      /analyze|run analysis|current setup|fresh/i.test(trimmed);
-
-    if (wantsAnalyze) {
+    void (async () => {
       try {
-        const result = await analyzeMutation.mutateAsync();
-        if (result.recommendation) {
-          await recommendationQuery.refetch();
-          const digits = priceDigitsFor(symbol, result.recommendation.entry);
-          analyzeNote = [
-            result.message ?? "Analysis complete.",
-            `Signal ${result.recommendation.signal} at ${formatPercent(result.recommendation.confidence)}.`,
-            `Entry ${formatPrice(result.recommendation.entry, digits)} · SL ${formatPrice(result.recommendation.stopLoss, digits)} · TP ${formatPrice(result.recommendation.takeProfit, digits)}.`,
-          ].join(" ");
-        } else {
-          analyzeNote = result.message ?? "Analysis finished without a new recommendation.";
-        }
+        const result = await chatWithAthena({
+          messages: [{ role: "user", content: q }],
+          symbol,
+          timeframe,
+        });
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a-q-${Date.now()}`,
+            role: "assistant",
+            content: result.reply,
+          },
+        ]);
       } catch (error) {
-        analyzeNote =
-          error instanceof Error ? error.message : "Analysis failed. Try again.";
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `a-q-err-${Date.now()}`,
+            role: "assistant",
+            content:
+              error instanceof Error
+                ? error.message
+                : "Chat request failed.",
+          },
+        ]);
       }
-    }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    const reply = buildContextReply({
-      prompt: trimmed,
-      symbol,
-      timeframe,
-      recommendation: recommendationQuery.data ?? null,
-      news: newsQuery.data,
-      analyzeNote,
+  useEffect(() => {
+    setMessages((prev) => {
+      if (prev.length !== 1 || prev[0]?.id !== "welcome") return prev;
+      return [
+        {
+          id: "welcome",
+          role: "assistant",
+          content: `Athena AI is loaded for ${symbol} ${timeframe}. Ask about setups, risk, or run an analysis.`,
+        },
+      ];
     });
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `a-${Date.now()}`,
-        role: "assistant",
-        content: reply,
-      },
-    ]);
-  }
-
-  function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    void respond(input);
-  }
+  }, [symbol, timeframe]);
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-[1100px] flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-4">
+    <div className="mx-auto flex h-[min(720px,calc(100dvh-7.5rem))] max-w-[960px] flex-col gap-3">
+      <div className="flex shrink-0 flex-wrap items-end justify-between gap-3 border-b border-border pb-3">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
             Athena AI
           </p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Market assistant</h1>
-          <p className="mt-1 text-sm text-muted">
-            Live context for {symbol} {timeframe} · news-aware replies
+          <h1 className="mt-1 text-xl font-semibold tracking-tight">
+            Market assistant
+          </h1>
+          <p className="mt-0.5 text-xs text-muted">
+            Local LLM explains frozen Athena decisions · {symbol} {timeframe}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone="ai">{contextBadge}</Badge>
-          <Badge tone={newsQuery.data?.highImpactUpcoming ? "warning" : "neutral"}>
+          <Badge
+            tone={newsQuery.data?.highImpactUpcoming ? "warning" : "neutral"}
+          >
             News {newsQuery.data?.sentiment ?? "—"}
           </Badge>
           <select
             value={symbol}
             onChange={(event) => setSymbol(event.target.value)}
-            className="h-9 rounded-sm border border-border bg-panel px-3 font-mono text-sm outline-none focus:border-primary/50"
+            className="h-8 rounded-sm border border-border bg-panel px-2.5 font-mono text-xs outline-none focus:border-primary/50"
           >
             {MARKET_SYMBOLS.map((item) => (
               <option key={item} value={item}>
@@ -219,7 +160,7 @@ export function AiChatView() {
           <select
             value={timeframe}
             onChange={(event) => setTimeframe(event.target.value)}
-            className="h-9 rounded-sm border border-border bg-panel px-3 font-mono text-sm outline-none focus:border-primary/50"
+            className="h-8 rounded-sm border border-border bg-panel px-2.5 font-mono text-xs outline-none focus:border-primary/50"
           >
             {TIMEFRAMES.map((item) => (
               <option key={item} value={item}>
@@ -230,52 +171,58 @@ export function AiChatView() {
         </div>
       </div>
 
+      <MarketSummary symbol={symbol} timeframe={timeframe} compact />
+
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-4">
-          <div className="flex flex-wrap gap-1.5">
-            {suggestedPrompts.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                onClick={() => void respond(prompt)}
-                className="rounded-sm border border-border bg-background/40 px-2.5 py-1 text-[11px] text-muted transition-colors hover:border-ai/30 hover:text-foreground"
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
-
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={
-                  message.role === "user"
-                    ? "ml-auto max-w-[85%] rounded-sm border border-primary/25 bg-primary/10 px-3 py-2 text-sm whitespace-pre-wrap"
-                    : "mr-auto max-w-[90%] rounded-sm border border-ai/20 bg-ai/5 px-3 py-2 text-sm whitespace-pre-wrap text-zinc-200"
+        <CardContent className="flex min-h-0 flex-1 flex-col p-3">
+          <AiChat
+            symbol={symbol}
+            timeframe={timeframe}
+            messages={messages}
+            onMessagesChange={setMessages}
+            suggestedPrompts={suggestedPrompts}
+            preferStream
+            onBeforeSend={async (trimmed) => {
+              const wantsAnalyze =
+                /analyze|run analysis|current setup|fresh/i.test(trimmed);
+              if (!wantsAnalyze) return;
+              try {
+                const result = await analyzeMutation.mutateAsync();
+                if (result.recommendation) {
+                  await recommendationQuery.refetch();
+                  const digits = priceDigitsFor(
+                    symbol,
+                    result.recommendation.entry,
+                  );
+                  const analyzeNote = [
+                    result.message ?? "Analysis complete.",
+                    `Signal ${result.recommendation.signal} at ${formatPercent(result.recommendation.confidence)}.`,
+                    `Entry ${formatPrice(result.recommendation.entry, digits)} · SL ${formatPrice(result.recommendation.stopLoss, digits)} · TP ${formatPrice(result.recommendation.takeProfit, digits)}.`,
+                  ].join(" ");
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: `a-analyze-${Date.now()}`,
+                      role: "assistant",
+                      content: analyzeNote,
+                    },
+                  ]);
                 }
-              >
-                {message.role === "assistant" ? (
-                  <span className="mb-1 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-ai">
-                    <Sparkles className="h-3 w-3" /> Athena
-                  </span>
-                ) : null}
-                {message.content}
-              </div>
-            ))}
-          </div>
-
-          <form onSubmit={onSubmit} className="flex gap-2 border-t border-border pt-3">
-            <input
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              placeholder={`Ask about ${symbol}…`}
-              className="h-10 flex-1 rounded-sm border border-border bg-background/40 px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-ai/40"
-            />
-            <Button variant="ai" type="submit" disabled={analyzeMutation.isPending}>
-              {analyzeMutation.isPending ? "Working…" : "Send"}
-            </Button>
-          </form>
+              } catch (error) {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: `a-analyze-err-${Date.now()}`,
+                    role: "assistant",
+                    content:
+                      error instanceof Error
+                        ? error.message
+                        : "Analysis failed. Try again.",
+                  },
+                ]);
+              }
+            }}
+          />
         </CardContent>
       </Card>
     </div>

@@ -17,6 +17,7 @@ from sqlalchemy import Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
+from sqlalchemy.types import JSON
 
 from app.models.base_model import BaseModel
 
@@ -27,10 +28,16 @@ class OutcomeLabel(str, Enum):
     NEUTRAL = "NEUTRAL"
 
 
+class OutcomeResult(str, Enum):
+    TP_HIT = "TP_HIT"
+    SL_HIT = "SL_HIT"
+    MANUAL_EXIT = "MANUAL_EXIT"
+    TIMEOUT = "TIMEOUT"
+    NEUTRAL = "NEUTRAL"
+
+
 class RecommendationOutcome(BaseModel):
-    """
-    Labeled outcome for a past recommendation.
-    """
+    """Labeled outcome for a past recommendation."""
 
     __tablename__ = "recommendation_outcomes"
 
@@ -61,11 +68,27 @@ class RecommendationOutcome(BaseModel):
         nullable=False,
     )
 
+    result: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    entry: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    sl: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    tp: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    rr: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    profit: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    regime: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    confidence_at_entry: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
 
 class PatternOccurrence(BaseModel):
-    """
-    Detected pattern with eventual outcome.
-    """
+    """Detected pattern with eventual outcome."""
 
     __tablename__ = "pattern_occurrences"
 
@@ -85,9 +108,7 @@ class PatternOccurrence(BaseModel):
 
 
 class ConfluenceSnapshot(BaseModel):
-    """
-    Confluence factor scores at decision time.
-    """
+    """Confluence factor scores at decision time."""
 
     __tablename__ = "confluence_snapshots"
 
@@ -106,9 +127,7 @@ class ConfluenceSnapshot(BaseModel):
 
 
 class ModelMetric(BaseModel):
-    """
-    Versioned model accuracy statistics.
-    """
+    """Versioned model accuracy statistics."""
 
     __tablename__ = "model_metrics"
 
@@ -123,3 +142,115 @@ class ModelMetric(BaseModel):
     sample_size: Mapped[int] = mapped_column(Integer, nullable=False)
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class FeatureStatistic(BaseModel):
+    __tablename__ = "feature_statistics"
+
+    feature_key: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    symbol: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    timeframe: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
+    win_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    avg_rr: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    sample_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    profit_factor: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+
+class SymbolStatistic(BaseModel):
+    __tablename__ = "symbol_statistics"
+
+    symbol: Mapped[str] = mapped_column(String(16), nullable=False, unique=True)
+
+    recommendations: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    win_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    avg_rr: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    avg_confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    profit_factor: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+
+class TimeframeStatistic(BaseModel):
+    __tablename__ = "timeframe_statistics"
+
+    timeframe: Mapped[str] = mapped_column(String(10), nullable=False, unique=True)
+
+    win_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    avg_rr: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    trade_frequency: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    profit_factor: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    sample_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class StrategyStatistic(BaseModel):
+    __tablename__ = "strategy_statistics"
+
+    combo_key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+
+    win_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    avg_rr: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    sample_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    profit_factor: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+
+class RegimeStatistic(BaseModel):
+    __tablename__ = "regime_statistics"
+
+    regime: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
+
+    win_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    avg_rr: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    sample_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    profit_factor: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+
+class ConfidenceCalibration(BaseModel):
+    __tablename__ = "confidence_calibration"
+
+    bucket: Mapped[str] = mapped_column(String(16), nullable=False, unique=True)
+
+    predicted_mid: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    actual_win_rate: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    sample_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class LearningVersion(BaseModel):
+    __tablename__ = "learning_versions"
+
+    version: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class WeightHistory(BaseModel):
+    __tablename__ = "weight_history"
+
+    version: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+
+    weights: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+    learning_version: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

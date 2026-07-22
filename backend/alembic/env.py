@@ -13,12 +13,14 @@ from sqlalchemy import pool
 from app.core.settings import settings
 from app.database.base import Base
 
+from app.models.agent_memory import AgentMemory  # noqa: F401
 from app.models.learning import ConfluenceSnapshot  # noqa: F401
 from app.models.learning import ModelMetric  # noqa: F401
 from app.models.learning import PatternOccurrence  # noqa: F401
 from app.models.learning import RecommendationOutcome  # noqa: F401
 from app.models.market_candle import MarketCandle  # noqa: F401
 from app.models.news_event import NewsEvent  # noqa: F401
+from app.models.paper_position import PaperPosition  # noqa: F401
 from app.models.recommendation import Recommendation  # noqa: F401
 from app.models.user import User  # noqa: F401
 from app.models.user_watchlist import UserWatchlist  # noqa: F401

@@ -14,16 +14,26 @@ from sqlalchemy.orm import Session
 from app.ai.schemas.context import ChatMessage
 from app.ai.schemas.context import NewsItem
 from app.ai.services.ai_service import ai_service
+from app.ai.services.chat_service import chat_service
+from app.ai.services.indicator_explainer import indicator_explainer
+from app.ai.services.session_summary_service import session_summary_service
+from app.ai.services.strategy_teacher import strategy_teacher
+from app.ai.services.trade_explainer import trade_explainer
 from app.auth.dependencies import require_trader
 from app.auth.dependencies import require_viewer
 from app.core.market_validation import validate_symbol
 from app.core.market_validation import validate_timeframe
 from app.database.database import get_db
 from app.models.user import User
+from app.repositories.recommendation_repository import RecommendationRepository
 from app.schemas.ai import ChatRequest
 from app.schemas.ai import EmbeddingsRequest
+from app.schemas.ai import ExplainIndicatorRequest
+from app.schemas.ai import ExplainTradeRequest
 from app.schemas.ai import MarketSummaryRequest
 from app.schemas.ai import NewsSummaryRequest
+from app.schemas.ai import SessionSummaryRequest
+from app.schemas.ai import TeachRequest
 from app.services.market_service import MarketService
 from app.services.news_service import NewsService
 
@@ -94,11 +104,86 @@ def chat(
         ChatMessage(role=message.role, content=message.content)
         for message in body.messages
     ]
-    result = ai_service.chat(messages, context=context)
+    result = chat_service.chat(messages, context=context)
     return {
         "success": result.success,
         "data": result.model_dump(),
         "message": result.message,
+    }
+
+
+@router.post(
+    "/explain-trade",
+    summary="Explain a frozen Athena recommendation",
+)
+def explain_trade(
+    body: ExplainTradeRequest,
+    _: User = Depends(require_viewer),
+    db: Session = Depends(get_db),
+    market_service: MarketService = Depends(get_market_service),
+):
+    if body.snapshot:
+        result = ai_service.explain_trade_from_snapshot(body.snapshot)
+        return {
+            "success": result.success,
+            "data": result.model_dump(),
+            "message": result.message,
+        }
+
+    if body.recommendation_id is not None:
+        row = RecommendationRepository(db).get_by_id(body.recommendation_id)
+        if row is None:
+            return {
+                "success": False,
+                "message": "Recommendation not found.",
+            }
+        snapshot = {
+            "id": row.id,
+            "symbol": row.symbol,
+            "timeframe": row.timeframe,
+            "signal": row.signal,
+            "confidence": row.confidence,
+            "entry_price": row.entry_price,
+            "entry_type": getattr(row, "entry_type", None),
+            "stop_loss": row.stop_loss,
+            "take_profit": row.take_profit,
+            "risk_reward": row.risk_reward,
+            "sl_reason": getattr(row, "sl_reason", None),
+            "tp_reason": getattr(row, "tp_reason", None),
+            "reason": getattr(row, "reasoning", None) or getattr(row, "reason", None),
+            "status": row.status,
+            "trade_probability": getattr(row, "trade_probability", None),
+            "trade_quality": getattr(row, "trade_quality", None),
+            "confidence_breakdown": getattr(row, "confidence_breakdown", None),
+            "institutional_checklist": getattr(row, "institutional_checklist", None),
+            "created_at": str(row.created_at) if row.created_at else None,
+        }
+        result = ai_service.explain_trade_from_snapshot(snapshot)
+        return {
+            "success": result.success,
+            "data": result.model_dump(),
+            "message": result.message,
+        }
+
+    if body.symbol and body.timeframe:
+        symbol = validate_symbol(body.symbol)
+        timeframe = validate_timeframe(body.timeframe)
+        context = market_service.build_ai_market_context(symbol, timeframe)
+        if context is None:
+            return {
+                "success": False,
+                "message": "Not enough market data for explanation.",
+            }
+        result = trade_explainer.explain(context)
+        return {
+            "success": result.success,
+            "data": result.model_dump(),
+            "message": result.message,
+        }
+
+    return {
+        "success": False,
+        "message": "Provide recommendation_id, snapshot, or symbol+timeframe.",
     }
 
 
@@ -125,6 +210,92 @@ def market_summary(
         "success": result.success,
         "data": result.model_dump(),
         "message": result.message,
+    }
+
+
+@router.post(
+    "/explain-indicator",
+    summary="Educational indicator help",
+)
+def explain_indicator(
+    body: ExplainIndicatorRequest,
+    _: User = Depends(require_viewer),
+    market_service: MarketService = Depends(get_market_service),
+):
+    context = None
+    if body.symbol and body.timeframe:
+        symbol = validate_symbol(body.symbol)
+        timeframe = validate_timeframe(body.timeframe)
+        context = market_service.build_ai_market_context(symbol, timeframe)
+
+    result = indicator_explainer.explain(body.topic, context)
+    return {
+        "success": result.success,
+        "data": result.model_dump(),
+        "message": result.message,
+    }
+
+
+@router.post(
+    "/teach",
+    summary="Strategy teacher lesson",
+)
+def teach(
+    body: TeachRequest,
+    _: User = Depends(require_viewer),
+):
+    result = strategy_teacher.teach(body.topic)
+    return {
+        "success": result.success,
+        "data": result.model_dump(),
+        "message": result.message,
+    }
+
+
+@router.post(
+    "/session-summary",
+    summary="Trading session summary",
+)
+def session_summary(
+    body: SessionSummaryRequest,
+    _: User = Depends(require_viewer),
+):
+    stats = body.model_dump(exclude_none=True)
+    result = session_summary_service.summarize(stats)
+    return {
+        "success": result.success,
+        "data": result.model_dump(),
+        "message": result.message,
+    }
+
+
+@router.get(
+    "/health",
+    summary="AI provider health and models",
+)
+def ai_health(_: User = Depends(require_viewer)):
+    result = ai_service.health()
+    return {
+        "success": result.healthy,
+        "data": result.model_dump(),
+        "message": result.message,
+    }
+
+
+@router.get(
+    "/models",
+    summary="List available AI models (Ollama tags when local)",
+)
+def ai_models(_: User = Depends(require_viewer)):
+    models = ai_service.list_models()
+    health = ai_service.health()
+    return {
+        "success": True,
+        "data": {
+            "provider": health.provider,
+            "active_model": health.model,
+            "models": models,
+        },
     }
 
 

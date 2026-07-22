@@ -4,11 +4,14 @@ Authentication API.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter
 from fastapi import Depends
 from fastapi import Query
 from fastapi import Response
 from fastapi import status
+from fastapi.security import OAuth2PasswordRequestForm
 
 from app.auth.dependencies import (
     get_auth_service,
@@ -65,32 +68,28 @@ def login(
     payload: LoginRequest,
     service: AuthService = Depends(get_auth_service),
 ):
-    # #region agent log
-    try:
-        import json
-        import time
-        from pathlib import Path
-
-        Path(__file__).resolve().parents[4].joinpath("debug-9c9447.log").open(
-            "a", encoding="utf-8"
-        ).write(
-            json.dumps(
-                {
-                    "sessionId": "9c9447",
-                    "runId": "pre-fix",
-                    "hypothesisId": "D",
-                    "location": "auth.py:login",
-                    "message": "login handler entered",
-                    "data": {"username": payload.username[:64]},
-                    "timestamp": int(time.time() * 1000),
-                }
-            )
-            + "\n"
-        )
-    except Exception:
-        pass
-    # #endregion
     return service.login(payload)
+
+
+@router.post(
+    "/token",
+    response_model=Token,
+    summary="OAuth2 password login (Swagger Authorize)",
+)
+def login_token(
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    service: AuthService = Depends(get_auth_service),
+):
+    """
+    Form-based login for Swagger UI OAuth2 password flow.
+    Application clients should prefer JSON POST /auth/login.
+    """
+    return service.login(
+        LoginRequest(
+            username=form_data.username,
+            password=form_data.password,
+        )
+    )
 
 
 # ==========================================================

@@ -103,10 +103,12 @@ class AuthService(BaseService):
                 "User account is disabled."
             )
 
-        if not security.verify_password(
+        password_ok = security.verify_password(
             payload.password,
             user.password_hash,
-        ):
+        )
+
+        if not password_ok:
             raise ValidationException(
                 "Invalid username or password."
             )

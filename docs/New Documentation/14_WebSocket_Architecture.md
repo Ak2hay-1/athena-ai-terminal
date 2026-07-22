@@ -228,7 +228,7 @@ XAUUSD
 
 EURUSD
 
-BTCUSD
+GBPUSD
 
 Recommendations
 

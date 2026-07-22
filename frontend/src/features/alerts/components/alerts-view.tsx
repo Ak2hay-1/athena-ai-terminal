@@ -1,171 +1,32 @@
 "use client";
 
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Bell, Newspaper, ShieldAlert, TrendingUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MARKET_SYMBOLS, TIMEFRAMES } from "@/constants/markets";
-import { currentSession, relativeTime } from "@/lib/mappers";
-import { formatPercent } from "@/lib/utils";
-import { getCalendar, getLatestNews, getNewsContext } from "@/services/news";
 import {
-  getLatestRecommendation,
-  getRecommendationHistory,
-} from "@/services/recommendations";
-import { useAuthStore } from "@/store/auth-store";
-import { useDashboardStore } from "@/store/dashboard-store";
+  useDerivedAlerts,
+  type AlertItem,
+} from "@/features/alerts/hooks/use-derived-alerts";
 
-type AlertItem = {
-  id: string;
-  title: string;
-  detail: string;
-  time: string;
-  severity: "high" | "medium" | "info";
-  kind: "news" | "signal" | "session" | "structure";
-};
+function iconFor(kind: AlertItem["kind"]) {
+  if (kind === "news") return Newspaper;
+  if (kind === "signal") return TrendingUp;
+  if (kind === "structure") return ShieldAlert;
+  return Bell;
+}
 
 export function AlertsView() {
-  const user = useAuthStore((s) => s.user);
-  const symbol = useDashboardStore((s) => s.symbol);
-  const timeframe = useDashboardStore((s) => s.timeframe);
-  const setSymbol = useDashboardStore((s) => s.setSymbol);
-  const setTimeframe = useDashboardStore((s) => s.setTimeframe);
-
-  const newsContextQuery = useQuery({
-    queryKey: ["news", "context", symbol],
-    queryFn: () => getNewsContext(symbol),
-    enabled: Boolean(user),
-    refetchInterval: 30_000,
-  });
-
-  const newsQuery = useQuery({
-    queryKey: ["news", "latest", symbol, "alerts"],
-    queryFn: () => getLatestNews(symbol, 10),
-    enabled: Boolean(user),
-    refetchInterval: 30_000,
-  });
-
-  const calendarQuery = useQuery({
-    queryKey: ["news", "calendar", "alerts"],
-    queryFn: () => getCalendar(12),
-    enabled: Boolean(user),
-    refetchInterval: 60_000,
-  });
-
-  const recommendationQuery = useQuery({
-    queryKey: ["recommendation", "latest", symbol, timeframe],
-    queryFn: () => getLatestRecommendation(symbol, timeframe),
-    enabled: Boolean(user),
-    refetchInterval: 30_000,
-  });
-
-  const historyQuery = useQuery({
-    queryKey: ["recommendation", "history", symbol, timeframe, 5],
-    queryFn: () => getRecommendationHistory(symbol, timeframe, 5),
-    enabled: Boolean(user),
-    refetchInterval: 60_000,
-  });
-
-  const alerts = useMemo(() => {
-    const items: AlertItem[] = [];
-    const context = newsContextQuery.data;
-    const recommendation = recommendationQuery.data;
-    const history = historyQuery.data ?? [];
-
-    if (context?.highImpactUpcoming) {
-      const next = context.upcomingEvents?.[0];
-      items.push({
-        id: "news-window",
-        title: "High-impact news window",
-        detail: next
-          ? `${next.title} · ${next.impact} impact approaching`
-          : "Elevated event risk for the current symbol",
-        time: "now",
-        severity: "high",
-        kind: "news",
-      });
-    }
-
-    (newsQuery.data ?? [])
-      .filter((item) => item.impact === "High")
-      .slice(0, 4)
-      .forEach((item) => {
-        items.push({
-          id: `news-${item.id}`,
-          title: item.title,
-          detail: `${item.symbols.join(", ") || symbol} · ${item.impact} impact`,
-          time: item.time,
-          severity: "high",
-          kind: "news",
-        });
-      });
-
-    (calendarQuery.data ?? [])
-      .filter((item) => item.impact === "High")
-      .slice(0, 3)
-      .forEach((item) => {
-        items.push({
-          id: `cal-${item.id}`,
-          title: `Calendar: ${item.title}`,
-          detail: "Economic release on watchlist",
-          time: item.time,
-          severity: "medium",
-          kind: "news",
-        });
-      });
-
-    if (recommendation && recommendation.confidence >= 70) {
-      items.push({
-        id: `sig-${recommendation.id}`,
-        title: `${recommendation.signal} confidence shift`,
-        detail: `${symbol} ${timeframe} at ${formatPercent(recommendation.confidence)} · ${recommendation.trend}`,
-        time: relativeTime(recommendation.createdAt),
-        severity: recommendation.confidence >= 80 ? "high" : "medium",
-        kind: "signal",
-      });
-    }
-
-    if (history.length >= 2) {
-      const [latest, previous] = history;
-      if (latest.signal !== previous.signal) {
-        items.push({
-          id: "signal-flip",
-          title: "Signal flipped",
-          detail: `${previous.signal} → ${latest.signal} on ${symbol} ${timeframe}`,
-          time: relativeTime(latest.createdAt),
-          severity: "medium",
-          kind: "structure",
-        });
-      }
-    }
-
-    items.push({
-      id: "session",
-      title: `${currentSession()} session active`,
-      detail: "Session volatility context for alert routing",
-      time: "live",
-      severity: "info",
-      kind: "session",
-    });
-
-    return items;
-  }, [
-    calendarQuery.data,
-    historyQuery.data,
-    newsContextQuery.data,
-    newsQuery.data,
-    recommendationQuery.data,
-    symbol,
+  const {
+    alerts,
+    highCount,
+    symbolFilter,
+    setSymbolFilter,
     timeframe,
-  ]);
-
-  const iconFor = (kind: AlertItem["kind"]) => {
-    if (kind === "news") return Newspaper;
-    if (kind === "signal") return TrendingUp;
-    if (kind === "structure") return ShieldAlert;
-    return Bell;
-  };
+    setSymbol,
+    setTimeframe,
+    isAll,
+  } = useDerivedAlerts();
 
   return (
     <div className="mx-auto max-w-[1100px] space-y-4">
@@ -179,15 +40,21 @@ export function AlertsView() {
           </h1>
           <p className="mt-1 text-sm text-muted">
             News impact, confidence shifts, and session context — not broker fills
+            {isAll ? " · all pairs" : ` · ${symbolFilter}`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge tone="warning">{alerts.filter((a) => a.severity === "high").length} high</Badge>
+          <Badge tone="warning">{highCount} high</Badge>
           <select
-            value={symbol}
-            onChange={(event) => setSymbol(event.target.value)}
+            value={symbolFilter}
+            onChange={(event) => {
+              const next = event.target.value;
+              setSymbolFilter(next);
+              if (next !== "ALL") setSymbol(next);
+            }}
             className="h-9 rounded-sm border border-border bg-panel px-3 font-mono text-sm outline-none focus:border-primary/50"
           >
+            <option value="ALL">ALL</option>
             {MARKET_SYMBOLS.map((item) => (
               <option key={item} value={item}>
                 {item}

@@ -3,6 +3,8 @@
 import { cn } from "@/lib/utils";
 import { useUiStore } from "@/store/ui-store";
 import { AiAssistantPanel } from "./ai-assistant-panel";
+import { GlobalSearch } from "./global-search";
+import { NotificationsDrawer } from "./notifications-drawer";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 
@@ -35,6 +37,8 @@ export function AppShell({ children, title, subtitle }: AppShellProps) {
           Athena · Professional market intelligence · Not a broker
         </footer>
       </div>
+      <NotificationsDrawer />
+      <GlobalSearch />
     </div>
   );
 }

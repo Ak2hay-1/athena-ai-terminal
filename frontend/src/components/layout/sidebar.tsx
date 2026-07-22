@@ -7,7 +7,8 @@ import {
   BarChart3,
   Bell,
   BookOpen,
-  FlaskConical,
+  CandlestickChart,
+  GraduationCap,
   History,
   LayoutDashboard,
   LineChart,
@@ -18,6 +19,7 @@ import {
   Sparkles,
   Target,
   Users,
+  Brain,
   type LucideIcon,
 } from "lucide-react";
 import { APP_NAME, adminNav, primaryNav, type NavItem } from "@/constants/navigation";
@@ -28,6 +30,7 @@ import { useUiStore } from "@/store/ui-store";
 const iconMap: Record<NavItem["icon"], LucideIcon> = {
   "layout-dashboard": LayoutDashboard,
   "line-chart": LineChart,
+  "candlestick-chart": CandlestickChart,
   sparkles: Sparkles,
   scan: Scan,
   history: History,
@@ -35,12 +38,13 @@ const iconMap: Record<NavItem["icon"], LucideIcon> = {
   "bar-chart-3": BarChart3,
   bell: Bell,
   target: Target,
-  "flask-conical": FlaskConical,
   settings: Settings,
   "message-square": MessageSquare,
   shield: Shield,
   users: Users,
   activity: Activity,
+  "graduation-cap": GraduationCap,
+  brain: Brain,
 };
 
 function NavLinkItem({ item, collapsed }: { item: NavItem; collapsed: boolean }) {

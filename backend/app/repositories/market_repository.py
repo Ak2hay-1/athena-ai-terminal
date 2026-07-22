@@ -70,17 +70,25 @@ class MarketRepository(BaseRepository[MarketCandle]):
         symbol: str,
         timeframe: str,
         limit: int = 500,
+        before: datetime | None = None,
     ) -> list[MarketCandle]:
         """
         Return the latest N candles.
+
+        When ``before`` is set, return the newest candles strictly older
+        than that timestamp (cursor pagination for historical loading).
         """
+
+        filters = [
+            MarketCandle.symbol == symbol,
+            MarketCandle.timeframe == timeframe,
+        ]
+        if before is not None:
+            filters.append(MarketCandle.time < before)
 
         stmt = (
             select(MarketCandle)
-            .where(
-                MarketCandle.symbol == symbol,
-                MarketCandle.timeframe == timeframe,
-            )
+            .where(*filters)
             .order_by(
                 desc(MarketCandle.time),
             )
@@ -226,12 +234,45 @@ class MarketRepository(BaseRepository[MarketCandle]):
     def bulk_create(
         self,
         candles: list[MarketCandle],
-    ) -> None:
+    ) -> int:
         """
-        Bulk insert candles.
+        Bulk insert candles, skipping rows that already exist
+        (uq_market_candle). Safe under concurrent collectors.
         """
+        if not candles:
+            return 0
 
-        self.db.add_all(candles)
+        from sqlalchemy.dialects.postgresql import insert
+
+        inserted = 0
+        chunk_size = 1000
+
+        for offset in range(0, len(candles), chunk_size):
+            chunk = candles[offset : offset + chunk_size]
+            rows = [
+                {
+                    "symbol": candle.symbol,
+                    "timeframe": candle.timeframe,
+                    "time": candle.time,
+                    "open": candle.open,
+                    "high": candle.high,
+                    "low": candle.low,
+                    "close": candle.close,
+                    "tick_volume": candle.tick_volume,
+                    "spread": candle.spread,
+                    "real_volume": candle.real_volume,
+                }
+                for candle in chunk
+            ]
+            stmt = (
+                insert(MarketCandle)
+                .values(rows)
+                .on_conflict_do_nothing(constraint="uq_market_candle")
+            )
+            result = self.db.execute(stmt)
+            inserted += result.rowcount or 0
+
+        return inserted
 
     # ======================================================
     # Delete Old Data

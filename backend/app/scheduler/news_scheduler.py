@@ -1,5 +1,5 @@
 """
-News sync scheduler.
+News sync + continuous learning scheduler.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from app.core.logger import logger
 from app.core.settings import settings
 from app.database.database import SessionLocal
-from app.learning.outcome_labeler import OutcomeLabeler
 from app.services.learning_service import LearningService
 from app.services.news_service import NewsService
 
@@ -69,7 +68,7 @@ class NewsScheduler:
 
         try:
 
-            count = OutcomeLabeler(db).label_pending()
+            count = LearningService(db).run_labeling()
 
             logger.info(
                 "Labeled %d recommendation outcomes",
@@ -79,6 +78,42 @@ class NewsScheduler:
         except Exception:
 
             logger.exception("Outcome labeling failed.")
+
+        finally:
+
+            db.close()
+
+    def refresh_analytics(self) -> None:
+
+        db = SessionLocal()
+
+        try:
+
+            result = LearningService(db).refresh_analytics()
+
+            logger.info("Learning analytics refreshed: %s", result)
+
+        except Exception:
+
+            logger.exception("Learning analytics refresh failed.")
+
+        finally:
+
+            db.close()
+
+    def update_weights(self) -> None:
+
+        db = SessionLocal()
+
+        try:
+
+            result = LearningService(db).update_confidence_weights(reason="scheduled")
+
+            logger.info("Confidence weight update: %s", result)
+
+        except Exception:
+
+            logger.exception("Confidence weight update failed.")
 
         finally:
 
@@ -120,7 +155,7 @@ class NewsScheduler:
         self.scheduler.add_job(
             self.label_outcomes,
             trigger="interval",
-            seconds=900,
+            seconds=settings.LEARNING_LABEL_INTERVAL_SECONDS,
             id="outcome_labeling",
             replace_existing=True,
             max_instances=1,
@@ -128,6 +163,26 @@ class NewsScheduler:
         )
 
         if settings.LEARNING_ENABLED:
+
+            self.scheduler.add_job(
+                self.refresh_analytics,
+                trigger="interval",
+                seconds=settings.LEARNING_ANALYTICS_INTERVAL_SECONDS,
+                id="learning_analytics",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+
+            self.scheduler.add_job(
+                self.update_weights,
+                trigger="interval",
+                seconds=settings.LEARNING_WEIGHT_UPDATE_INTERVAL_HOURS * 3600,
+                id="learning_weights",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
 
             interval = settings.LEARNING_RETRAIN_INTERVAL_HOURS * 3600
 

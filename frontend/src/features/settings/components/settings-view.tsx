@@ -1,12 +1,21 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MARKET_SYMBOLS, TIMEFRAMES } from "@/constants/markets";
+import { AutoTradeFiltersForm } from "@/features/trading/components/auto-trade-filters-form";
 import { changePassword, updateMe } from "@/services/auth";
+import {
+  DEFAULT_AUTO_TRADE,
+  PREFERENCES_QUERY_KEY,
+  autoTradeFromPreferences,
+  getPreferences,
+  updatePreferences,
+  type AutoTradeFilters,
+} from "@/services/preferences";
 import { useAuthStore } from "@/store/auth-store";
 import { useDashboardStore } from "@/store/dashboard-store";
 import { useUiStore } from "@/store/ui-store";
@@ -57,19 +66,35 @@ export function SettingsView() {
   const setSymbol = useDashboardStore((s) => s.setSymbol);
   const setTimeframe = useDashboardStore((s) => s.setTimeframe);
   const setRightPanel = useUiStore((s) => s.setRightPanel);
+  const queryClient = useQueryClient();
 
   const [fullName, setFullName] = useState(user?.full_name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [prefs, setPrefs] = useState<LocalPrefs>(loadPrefs);
+  const [autoTrade, setAutoTrade] =
+    useState<AutoTradeFilters>(DEFAULT_AUTO_TRADE);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const serverPrefsQuery = useQuery({
+    queryKey: PREFERENCES_QUERY_KEY,
+    queryFn: getPreferences,
+    enabled: Boolean(user),
+    staleTime: 30_000,
+  });
 
   useEffect(() => {
     setFullName(user?.full_name ?? "");
     setEmail(user?.email ?? "");
   }, [user]);
+
+  useEffect(() => {
+    if (serverPrefsQuery.data) {
+      setAutoTrade(autoTradeFromPreferences(serverPrefsQuery.data));
+    }
+  }, [serverPrefsQuery.data]);
 
   const profileMutation = useMutation({
     mutationFn: () => updateMe({ full_name: fullName, email }),
@@ -98,6 +123,29 @@ export function SettingsView() {
     },
     onError: (err: Error) => {
       setError(err.message || "Failed to change password.");
+      setStatus(null);
+    },
+  });
+
+  const autoTradeMutation = useMutation({
+    mutationFn: () =>
+      updatePreferences({
+        auto_trade_enabled: autoTrade.auto_trade_enabled,
+        auto_trade_symbols: autoTrade.auto_trade_symbols,
+        auto_trade_timeframes: autoTrade.auto_trade_timeframes,
+        auto_trade_min_confidence: autoTrade.auto_trade_min_confidence,
+        auto_trade_min_confluence: autoTrade.auto_trade_min_confluence,
+        auto_trade_min_rr: autoTrade.auto_trade_min_rr,
+        auto_trade_volume: autoTrade.auto_trade_volume,
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(PREFERENCES_QUERY_KEY, data);
+      setAutoTrade(autoTradeFromPreferences(data));
+      setStatus("Auto trade settings saved.");
+      setError(null);
+    },
+    onError: (err: Error) => {
+      setError(err.message || "Failed to save auto trade settings.");
       setStatus(null);
     },
   });
@@ -300,6 +348,49 @@ export function SettingsView() {
             </label>
             <Button type="submit" variant="secondary">
               Save preferences
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle>Auto Trade</CardTitle>
+          <Badge tone={autoTrade.auto_trade_enabled ? "bullish" : "default"}>
+            {autoTrade.auto_trade_enabled ? "ON" : "OFF"}
+          </Badge>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              autoTradeMutation.mutate();
+            }}
+          >
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="accent-primary"
+                checked={autoTrade.auto_trade_enabled}
+                onChange={(event) =>
+                  setAutoTrade((prev) => ({
+                    ...prev,
+                    auto_trade_enabled: event.target.checked,
+                  }))
+                }
+              />
+              Enable auto trading — matching Athena signals place MT5 orders directly
+            </label>
+            <AutoTradeFiltersForm value={autoTrade} onChange={setAutoTrade} />
+            <Button
+              type="submit"
+              variant="secondary"
+              disabled={autoTradeMutation.isPending || serverPrefsQuery.isLoading}
+            >
+              {autoTradeMutation.isPending
+                ? "Saving…"
+                : "Save auto trade settings"}
             </Button>
           </form>
         </CardContent>

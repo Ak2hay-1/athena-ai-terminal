@@ -112,6 +112,9 @@ class ValidationFlags(BaseModel):
     structure_sl: bool = False
     risk_distance: bool = False
     risk_reward: bool = False
+    spread: bool = True
+    mtf: bool = True
+    regime: bool = True
 
 
 class TradePlan(BaseModel):
@@ -134,3 +137,11 @@ class TradePlan(BaseModel):
     trend: str = "SIDEWAYS"
     validation: ValidationFlags = Field(default_factory=ValidationFlags)
     reasons: list[str] = Field(default_factory=list)
+
+
+@dataclass(slots=True)
+class RiskPlanBundle:
+    """Risk engine output pairing the trade plan with its structure context."""
+
+    plan: TradePlan
+    context: StructureContext

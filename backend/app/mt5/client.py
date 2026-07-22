@@ -7,13 +7,16 @@ Returns ORM models instead of dictionaries.
 
 from __future__ import annotations
 
+import multiprocessing
+from datetime import UTC
 from datetime import datetime
 
-import MetaTrader5 as mt5
+from app.mt5.sdk import mt5
 
 from app.core.logger import logger
 from app.core.settings import settings
 from app.models.market_candle import MarketCandle
+from app.mt5._init_probe import probe_initialize
 
 
 class MT5Client:
@@ -34,6 +37,19 @@ class MT5Client:
         if self.connected:
             return True
 
+        if not self._probe_reachable():
+
+            logger.error(
+                "MT5 unreachable: probe did not connect within %ss. "
+                "Ensure the MT5 terminal is installed, running, and logged "
+                "in on this machine.",
+                settings.MT5_INIT_TIMEOUT,
+            )
+
+            return False
+
+        # The probe already proved the terminal is reachable, so this
+        # in-process call should return promptly.
         initialized = mt5.initialize(
             path=settings.MT5_PATH,
             login=settings.MT5_LOGIN,
@@ -55,6 +71,51 @@ class MT5Client:
         logger.info("Connected to MetaTrader 5.")
 
         return True
+
+    def _probe_reachable(self) -> bool:
+        """
+        Attempt mt5.initialize() in a throwaway subprocess with a hard
+        timeout, so a hung/unreachable terminal can never freeze the app.
+
+        A thread cannot substitute for this: the native MT5 call does not
+        reliably release the GIL while blocked, so only killing the whole
+        OS process guarantees recovery.
+        """
+
+        ctx = multiprocessing.get_context("spawn")
+        result_queue: multiprocessing.Queue = ctx.Queue()
+
+        process = ctx.Process(
+            target=probe_initialize,
+            args=(
+                settings.MT5_PATH,
+                settings.MT5_LOGIN,
+                settings.MT5_PASSWORD,
+                settings.MT5_SERVER,
+                result_queue,
+            ),
+            daemon=True,
+        )
+
+        try:
+            process.start()
+            process.join(timeout=settings.MT5_INIT_TIMEOUT)
+
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=2)
+                return False
+
+            return bool(result_queue.get_nowait())
+
+        except Exception as exc:
+
+            logger.warning("MT5 reachability probe failed: %s", exc)
+
+            return False
+
+        finally:
+            result_queue.close()
 
     def shutdown(self) -> None:
 
@@ -110,8 +171,11 @@ class MT5Client:
 
                     timeframe=timeframe_name,
 
+                    # Always UTC — naive fromtimestamp() uses the OS
+                    # local zone (e.g. IST) and corrupts candle times.
                     time=datetime.fromtimestamp(
-                        int(row["time"])
+                        int(row["time"]),
+                        tz=UTC,
                     ),
 
                     open=float(row["open"]),

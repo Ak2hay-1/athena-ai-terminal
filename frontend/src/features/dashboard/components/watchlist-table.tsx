@@ -48,6 +48,12 @@ function WatchlistRow({ item }: { item: WatchlistItem }) {
       </td>
       <td className="px-3 py-2.5">
         <SignalBadge signal={item.signal} />
+        {item.scannerGroup ? (
+          <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-muted-foreground">
+            {item.scannerGroup.replace(/_/g, " ")}
+            {item.setupQuality != null ? ` · Q${item.setupQuality}` : ""}
+          </span>
+        ) : null}
       </td>
       <td className="px-3 py-2.5 font-mono text-xs tabular-nums text-muted">
         {formatPercent(item.confidence)}

@@ -1,34 +1,78 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SignalBadge } from "@/components/ui/signal-badge";
 import { priceDigitsFor } from "@/constants/markets";
+import { AiExplanationCard } from "@/features/ai/components/ai-explanation-card";
+import { ConfidenceBreakdown } from "@/features/recommendations/components/confidence-breakdown";
+import { HistoricalInsights } from "@/features/recommendations/components/historical-insights";
+import { InstitutionalChecklist } from "@/features/recommendations/components/institutional-checklist";
+import { MarketHeatmap } from "@/features/recommendations/components/market-heatmap";
+import { SmartEntryZone } from "@/features/recommendations/components/smart-entry-zone";
+import { TradeComparison } from "@/features/recommendations/components/trade-comparison";
+import { TradeProbabilityCard } from "@/features/recommendations/components/trade-probability-card";
+import { TradeQualityCard } from "@/features/recommendations/components/trade-quality-card";
 import { relativeTime } from "@/lib/mappers";
 import { formatPercent, formatPrice } from "@/lib/utils";
-import { getRecommendationHistory } from "@/services/recommendations";
+import { createJournalEntry } from "@/services/journal";
+import {
+  getRecommendationById,
+  getRecommendationHistory,
+} from "@/services/recommendations";
 import { useAuthStore } from "@/store/auth-store";
 import { useDashboardStore } from "@/store/dashboard-store";
 
 export function RecommendationDetailView({ id }: { id: string }) {
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const symbol = useDashboardStore((s) => s.symbol);
-  const timeframe = useDashboardStore((s) => s.timeframe);
 
   const historyQuery = useQuery({
-    queryKey: ["recommendation", "history", symbol, timeframe, 100],
-    queryFn: () => getRecommendationHistory(symbol, timeframe, 100),
+    queryKey: ["recommendation", "history", symbol, 100],
+    queryFn: () => getRecommendationHistory(symbol, null, 100),
     enabled: Boolean(user),
   });
 
+  const byIdQuery = useQuery({
+    queryKey: ["recommendation", "by-id", id],
+    queryFn: () => getRecommendationById(id),
+    enabled: Boolean(user),
+  });
+
+  const addToJournal = useMutation({
+    mutationFn: async () => {
+      const rec =
+        byIdQuery.data ??
+        historyQuery.data?.find((item) => item.id === id) ??
+        historyQuery.data?.find((item) => String(item.id) === String(id));
+      if (!rec) throw new Error("Recommendation not found");
+      return createJournalEntry({
+        entryType: "recommendation_review",
+        title: `${rec.symbol} ${rec.signal} review`,
+        body:
+          rec.reasons.slice(0, 5).join(" · ") ||
+          `${rec.trend} bias · ${formatPercent(rec.confidence)} confidence`,
+        symbol: rec.symbol,
+        recommendationId: Number(rec.id),
+        tags: ["from_detail"],
+      });
+    },
+    onSuccess: () => {
+      router.push("/journal");
+    },
+  });
+
   const recommendation =
+    byIdQuery.data ??
     historyQuery.data?.find((item) => item.id === id) ??
     historyQuery.data?.find((item) => String(item.id) === String(id));
 
-  if (historyQuery.isLoading) {
+  if (historyQuery.isLoading && byIdQuery.isLoading) {
     return (
       <div className="mx-auto max-w-[900px] py-16 text-center text-sm text-muted">
         Loading recommendation…
@@ -104,6 +148,14 @@ export function RecommendationDetailView({ id }: { id: string }) {
         </Card>
       </div>
 
+      {recommendation.entryZone ? (
+        <SmartEntryZone zone={recommendation.entryZone} digits={digits} />
+      ) : null}
+
+      {recommendation.confidenceBreakdown ? (
+        <ConfidenceBreakdown data={recommendation.confidenceBreakdown} />
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Context</CardTitle>
@@ -126,25 +178,24 @@ export function RecommendationDetailView({ id }: { id: string }) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Reasoning</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {recommendation.reasons.length === 0 ? (
-            <p className="text-sm text-muted">No structured reasons stored for this signal.</p>
-          ) : (
-            recommendation.reasons.map((reason) => (
-              <p
-                key={reason}
-                className="rounded-sm border border-border/60 bg-background/30 px-3 py-2 text-sm text-zinc-200"
-              >
-                {reason}
-              </p>
-            ))
-          )}
-        </CardContent>
-      </Card>
+      <InstitutionalChecklist
+        items={recommendation.checklist}
+        validation={recommendation.validation}
+      />
+
+      <TradeProbabilityCard recommendation={recommendation} />
+      <TradeQualityCard recommendation={recommendation} />
+      <HistoricalInsights insights={recommendation.historicalInsights} />
+      <TradeComparison recommendationId={recommendation.id} />
+
+      <AiExplanationCard
+        recommendationId={recommendation.id}
+        symbol={recommendation.symbol}
+        timeframe={recommendation.timeframe}
+        fallbackReasons={recommendation.reasons}
+      />
+
+      {recommendation.heatmap ? <MarketHeatmap data={recommendation.heatmap} /> : null}
 
       <div className="flex flex-wrap gap-2">
         <Button asChild>
@@ -155,8 +206,12 @@ export function RecommendationDetailView({ id }: { id: string }) {
         <Button asChild variant="secondary">
           <Link href="/history">All history</Link>
         </Button>
-        <Button asChild variant="ai">
-          <Link href="/journal">Add to journal review</Link>
+        <Button
+          variant="ai"
+          disabled={addToJournal.isPending}
+          onClick={() => addToJournal.mutate()}
+        >
+          {addToJournal.isPending ? "Adding…" : "Add to journal review"}
         </Button>
       </div>
     </div>

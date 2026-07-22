@@ -12,7 +12,6 @@ import { useDashboardStore } from "@/store/dashboard-store";
 import { ActivityTimeline } from "./activity-timeline";
 import { DashboardChart } from "./dashboard-chart";
 import { HighImpactNews } from "./high-impact-news";
-import { OpenPositions } from "./open-positions";
 import { RecentRecommendations } from "./recent-recommendations";
 import { RecommendationHeroCard } from "./recommendation-hero-card";
 import { ScannerPreview } from "./scanner-preview";
@@ -22,19 +21,19 @@ export function DashboardView() {
   const setSymbol = useDashboardStore((s) => s.setSymbol);
   const setTimeframe = useDashboardStore((s) => s.setTimeframe);
   const {
+    enabled,
     symbol,
     timeframe,
     health,
     recommendation,
+    timeframeSignals,
     recentRecommendations,
     newsContext,
     newsHeadlines,
     calendarEvents,
     newsRefreshing,
-    positions,
+    newsDataUpdatedAt,
     watchlist,
-    candles,
-    liveCandle,
     scanner,
     activity,
     marketStatus,
@@ -46,44 +45,54 @@ export function DashboardView() {
     error,
   } = useDashboardData();
 
+  const marketLabel = marketStatus.marketOpen
+    ? "active"
+    : marketStatus.marketReason.toLowerCase().includes("weekend")
+      ? "closed (weekend)"
+      : "closed";
+
   return (
-    <div className="mx-auto max-w-[1400px] space-y-6">
+    <div className="mx-auto max-w-[1600px] space-y-4">
       <motion.div
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2 }}
-        className="flex flex-wrap items-end justify-between gap-4"
+        className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-3"
       >
         <div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
               Athena Terminal
             </p>
+            <Badge tone={marketStatus.marketOpen ? "bullish" : "bearish"}>
+              Market {marketStatus.marketOpen ? "Open" : "Closed"}
+            </Badge>
+            <Badge tone={marketStatus.feedConnected ? "primary" : "bearish"}>
+              Feed {marketStatus.feedConnected ? "OK" : "Down"}
+            </Badge>
             <Badge tone={wsConnected ? "bullish" : "warning"}>
               {wsConnected ? (
                 <>
-                  <Wifi className="mr-1 h-3 w-3" /> Live
+                  <Wifi className="mr-1 h-3 w-3" /> WS
                 </>
               ) : (
                 <>
-                  <WifiOff className="mr-1 h-3 w-3" /> Live quotes
+                  <WifiOff className="mr-1 h-3 w-3" /> WS
                 </>
               )}
             </Badge>
-            <Badge tone={health?.status === "healthy" ? "primary" : "bearish"}>
-              API {health?.status ?? "unknown"}
-            </Badge>
+            <Badge tone="neutral">{marketStatus.session}</Badge>
           </div>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-balance">
+          <h2 className="mt-1 text-xl font-semibold tracking-tight text-balance">
             {greetingForHour()} — markets are{" "}
             <span className={marketStatus.marketOpen ? "text-bullish" : "text-bearish"}>
-              {marketStatus.marketOpen ? "active" : "degraded"}
+              {marketLabel}
             </span>
           </h2>
-          <p className="mt-1 max-w-xl text-sm text-muted">
-            Live recommendations, news context, and watchlist from Athena APIs.
+          <p className="mt-0.5 max-w-xl text-xs text-muted">
+            {marketStatus.marketReason}
             {newsContext?.highImpactUpcoming
-              ? " High-impact news window approaching."
+              ? " · High-impact news window approaching."
               : ""}
           </p>
         </div>
@@ -92,7 +101,8 @@ export function DashboardView() {
           <select
             value={symbol}
             onChange={(event) => setSymbol(event.target.value)}
-            className="h-9 rounded-sm border border-border bg-panel px-3 font-mono text-sm outline-none focus:border-primary/50"
+            className="h-8 rounded-sm border border-border bg-panel px-2.5 font-mono text-xs outline-none focus:border-primary/50"
+            aria-label="Symbol"
           >
             {MARKET_SYMBOLS.map((item) => (
               <option key={item} value={item}>
@@ -100,17 +110,24 @@ export function DashboardView() {
               </option>
             ))}
           </select>
-          <select
-            value={timeframe}
-            onChange={(event) => setTimeframe(event.target.value)}
-            className="h-9 rounded-sm border border-border bg-panel px-3 font-mono text-sm outline-none focus:border-primary/50"
-          >
-            {TIMEFRAMES.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </select>
+          <label className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Chart
+            </span>
+            <select
+              value={timeframe}
+              onChange={(event) => setTimeframe(event.target.value)}
+              className="h-8 rounded-sm border border-border bg-panel px-2.5 font-mono text-xs outline-none focus:border-primary/50"
+              aria-label="Chart timeframe"
+              title="Chart candles only — trade suggestion uses the best overall setup"
+            >
+              {TIMEFRAMES.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </label>
           <Button
             variant="secondary"
             size="sm"
@@ -132,16 +149,16 @@ export function DashboardView() {
       </motion.div>
 
       {error ? (
-        <div className="rounded-xl border border-bearish/30 bg-bearish/10 px-4 py-3 text-sm text-bearish">
+        <div className="rounded-sm border border-bearish/30 bg-bearish/10 px-4 py-2.5 text-sm text-bearish">
           {error}
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           label="Market Status"
-          value={marketStatus.marketOpen ? "Open" : "Unhealthy"}
-          hint={`DB ${health?.database ?? "n/a"}`}
+          value={marketStatus.marketOpen ? "Open" : "Closed"}
+          hint={marketStatus.marketReason}
           tone={marketStatus.marketOpen ? "bullish" : "bearish"}
         />
         <MetricCard
@@ -151,26 +168,30 @@ export function DashboardView() {
           tone="primary"
         />
         <MetricCard
-          label="Volatility"
-          value={marketStatus.volatility}
-          hint="From confluence/confidence"
-          tone={marketStatus.volatility === "High" ? "warning" : "default"}
+          label="Feed / API"
+          value={health?.status === "healthy" ? "Healthy" : "Degraded"}
+          hint={`DB ${health?.database ?? "n/a"}`}
+          tone={health?.status === "healthy" ? "bullish" : "warning"}
         />
         <MetricCard
           label="Market Score"
           value={`${marketStatus.score}`}
-          hint="Confluence composite"
+          hint={`Vol ${marketStatus.volatility}`}
           tone="ai"
         />
       </div>
 
       {recommendation ? (
-        <RecommendationHeroCard recommendation={recommendation} />
+        <RecommendationHeroCard
+          recommendation={recommendation}
+          timeframeSignals={timeframeSignals}
+        />
       ) : (
-        <div className="rounded-sm border border-dashed border-border bg-panel/60 p-8 text-center">
+        <div className="rounded-sm border border-dashed border-border bg-panel/60 p-6 text-center">
           <p className="text-sm font-medium">No live recommendation yet</p>
           <p className="mt-1 text-sm text-muted">
-            Run analysis for {symbol} {timeframe}, or wait for the scheduler to publish one.
+            Run analysis for {symbol}, or wait for the scheduler to publish a setup.
+            Chart timeframe does not filter the trade call.
           </p>
           <Button
             className="mt-4"
@@ -183,18 +204,17 @@ export function DashboardView() {
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <div className="space-y-4 xl:col-span-2">
+      <div className="grid gap-3 xl:grid-cols-3">
+        <div className="space-y-3 xl:col-span-2">
           <DashboardChart
             symbol={symbol}
             timeframe={timeframe}
-            candles={candles}
-            liveCandle={liveCandle}
+            enabled={enabled}
           />
           <WatchlistTable items={watchlist} />
           <ScannerPreview items={scanner} />
         </div>
-        <div className="space-y-4">
+        <div className="space-y-3">
           <MetricCard
             label="AI Confidence"
             value={recommendation ? formatPercent(recommendation.confidence) : "—"}
@@ -207,8 +227,9 @@ export function DashboardView() {
             context={newsContext}
             calendar={calendarEvents}
             refreshing={newsRefreshing}
+            dataUpdatedAt={newsDataUpdatedAt}
+            symbol={symbol}
           />
-          <OpenPositions positions={positions} />
           <RecentRecommendations items={recentRecommendations} />
           <ActivityTimeline events={activity} />
         </div>

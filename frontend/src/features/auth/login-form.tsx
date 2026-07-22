@@ -22,10 +22,16 @@ export function LoginForm() {
     setSubmitting(true);
 
     try {
+      // #region agent log
+      fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2d949e'},body:JSON.stringify({sessionId:'2d949e',runId:'login-verify',hypothesisId:'B',location:'login-form.tsx:submit',message:'login form submit',data:{origin:typeof window!=='undefined'?window.location.origin:null,href:typeof window!=='undefined'?window.location.href:null,next:searchParams.get('next'),usernameLen:username.trim().length,passwordLen:password.length},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       await login(username, password);
       const next = searchParams.get("next") || "/";
       router.replace(next);
-    } catch {
+    } catch (err) {
+      // #region agent log
+      fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2d949e'},body:JSON.stringify({sessionId:'2d949e',runId:'login-verify',hypothesisId:'A',location:'login-form.tsx:catch',message:'login form caught error',data:{err:err instanceof Error?err.message:String(err)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       setError("Invalid credentials or backend unreachable.");
     } finally {
       setSubmitting(false);

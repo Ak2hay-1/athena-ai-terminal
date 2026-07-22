@@ -8,9 +8,12 @@ from __future__ import annotations
 
 # (prompt_per_1m_tokens, completion_per_1m_tokens)
 _MODEL_PRICES_USD: dict[str, tuple[float, float]] = {
+    "gemini-2.5-flash": (0.30, 2.50),
     "gemini-2.0-flash": (0.10, 0.40),
     "gemini-1.5-flash": (0.075, 0.30),
     "gemini-1.5-pro": (1.25, 5.00),
+    "gpt-5-mini": (0.25, 2.00),
+    "gpt-5": (1.25, 10.00),
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.50, 10.00),
     "claude-sonnet-4-20250514": (3.00, 15.00),
@@ -29,13 +32,19 @@ def estimate_cost_usd(
 ) -> float | None:
     """Estimate cost in USD for a completed generation call."""
 
-    prices = _MODEL_PRICES_USD.get(model)
+    normalized = (model or "").strip().lower()
+    prices = _MODEL_PRICES_USD.get(normalized) or _MODEL_PRICES_USD.get(model)
     if prices is None:
-        # Try prefix match (e.g. gemini-2.0-flash-001)
+        # Prefix match, then substring (Azure custom deployment names)
         for key, value in _MODEL_PRICES_USD.items():
-            if model.startswith(key):
+            if normalized.startswith(key) or model.startswith(key):
                 prices = value
                 break
+        if prices is None:
+            for key, value in _MODEL_PRICES_USD.items():
+                if key in normalized:
+                    prices = value
+                    break
     if prices is None:
         return None
 

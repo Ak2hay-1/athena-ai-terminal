@@ -1,4 +1,4 @@
-import MetaTrader5 as mt5
+from app.mt5.sdk import mt5
 import pandas as pd
 
 from app.market.client import client

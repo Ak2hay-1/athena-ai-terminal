@@ -6,81 +6,42 @@ export async function login(
   username: string,
   password: string,
 ): Promise<TokenResponse> {
-  const url = `${config.apiUrl}/auth/login`;
-  // #region agent log
-  fetch("http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "9c9447",
-    },
-    body: JSON.stringify({
-      sessionId: "9c9447",
-      runId: "pre-fix",
-      hypothesisId: "B",
-      location: "auth.ts:login:before",
-      message: "login fetch starting",
-      data: { url, apiUrl: config.apiUrl },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   let response: Response;
+  const loginUrl = `${config.apiUrl}/auth/login`;
+  // #region agent log
+  fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2d949e'},body:JSON.stringify({sessionId:'2d949e',runId:'login-verify',hypothesisId:'A',location:'auth.ts:login:start',message:'login request start',data:{loginUrl,apiUrl:config.apiUrl,origin:typeof window!=='undefined'?window.location.origin:null,usernameLen:username.length,passwordLen:password.length},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   try {
-    response = await fetch(url, {
+    response = await fetch(loginUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
+      signal: AbortSignal.timeout(15_000),
     });
   } catch (err) {
     // #region agent log
-    fetch("http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Debug-Session-Id": "9c9447",
-      },
-      body: JSON.stringify({
-        sessionId: "9c9447",
-        runId: "pre-fix",
-        hypothesisId: "B",
-        location: "auth.ts:login:network_error",
-        message: "login fetch threw",
-        data: {
-          url,
-          error: err instanceof Error ? err.message : String(err),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
+    fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2d949e'},body:JSON.stringify({sessionId:'2d949e',runId:'login-verify',hypothesisId:'A',location:'auth.ts:login:network',message:'login fetch threw (network/CORS/timeout)',data:{loginUrl,err:err instanceof Error?err.message:String(err),name:err instanceof Error?err.name:null},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
-    throw err;
+    throw new Error("Backend unreachable");
   }
 
-  // #region agent log
-  fetch("http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "9c9447",
-    },
-    body: JSON.stringify({
-      sessionId: "9c9447",
-      runId: "pre-fix",
-      hypothesisId: "B",
-      location: "auth.ts:login:after",
-      message: "login fetch completed",
-      data: { url, status: response.status, ok: response.ok },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-
   if (!response.ok) {
+    let bodyPreview = "";
+    try {
+      bodyPreview = (await response.clone().text()).slice(0, 300);
+    } catch {
+      bodyPreview = "<unreadable>";
+    }
+    // #region agent log
+    fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2d949e'},body:JSON.stringify({sessionId:'2d949e',runId:'login-verify',hypothesisId:'D',location:'auth.ts:login:http-error',message:'login HTTP not ok',data:{status:response.status,statusText:response.statusText,bodyPreview},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     throw new Error("Invalid credentials");
   }
 
   const tokens = (await response.json()) as TokenResponse;
+  // #region agent log
+  fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'2d949e'},body:JSON.stringify({sessionId:'2d949e',runId:'login-verify',hypothesisId:'A',location:'auth.ts:login:ok',message:'login tokens received',data:{hasAccess:Boolean(tokens?.access_token),hasRefresh:Boolean(tokens?.refresh_token),tokenType:tokens?.token_type??null},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   setTokens(tokens);
   return tokens;
 }

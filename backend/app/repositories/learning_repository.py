@@ -169,3 +169,79 @@ class LearningRepository(BaseRepository[RecommendationOutcome]):
             .limit(limit)
             .all()
         )
+
+    def list_outcomes_with_recommendations(
+        self,
+        symbol: str | None = None,
+        timeframe: str | None = None,
+        limit: int = 5000,
+    ) -> list[tuple[RecommendationOutcome, Recommendation | None]]:
+        """
+        Join outcomes to parent recommendations for feature extraction.
+        """
+        query = (
+            self.db.query(RecommendationOutcome, Recommendation)
+            .outerjoin(
+                Recommendation,
+                Recommendation.id == RecommendationOutcome.recommendation_id,
+            )
+        )
+
+        if symbol:
+            query = query.filter(
+                RecommendationOutcome.symbol == symbol.upper()
+            )
+
+        if timeframe:
+            query = query.filter(
+                RecommendationOutcome.timeframe == timeframe.upper()
+            )
+
+        rows = (
+            query.order_by(desc(RecommendationOutcome.labeled_at))
+            .limit(limit)
+            .all()
+        )
+        return [(outcome, recommendation) for outcome, recommendation in rows]
+
+    def list_labeled_recommendations(
+        self,
+        symbol: str,
+        timeframe: str,
+        signal: str | None = None,
+        limit: int = 500,
+        exclude_id: int | None = None,
+    ) -> list[tuple[Recommendation, RecommendationOutcome]]:
+        """
+        Recommendations that have outcomes, for similarity / probability.
+        """
+        query = (
+            self.db.query(Recommendation, RecommendationOutcome)
+            .join(
+                RecommendationOutcome,
+                RecommendationOutcome.recommendation_id == Recommendation.id,
+            )
+            .filter(
+                Recommendation.symbol == symbol.upper(),
+                Recommendation.timeframe == timeframe.upper(),
+            )
+        )
+
+        if signal:
+            from app.core.enums import RecommendationSignal
+
+            try:
+                signal_enum = RecommendationSignal(signal.upper())
+                query = query.filter(Recommendation.signal == signal_enum)
+            except ValueError:
+                query = query.filter(Recommendation.signal == signal)
+
+        if exclude_id is not None:
+            query = query.filter(Recommendation.id != exclude_id)
+
+        rows = (
+            query.order_by(desc(Recommendation.created_at))
+            .limit(limit)
+            .all()
+        )
+        return [(rec, outcome) for rec, outcome in rows]

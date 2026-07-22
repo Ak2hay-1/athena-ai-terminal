@@ -62,13 +62,6 @@ def _infer_defaults(symbol: str) -> dict:
             "min_sl_points": 150,
             "tick_size": 0.01,
         }
-    if any(token in name for token in ("BTC", "ETH", "SOL")):
-        return {
-            "digits": 2,
-            "pip_size": 1.0,
-            "min_sl_atr_mult": 0.75,
-            "tick_size": 0.01,
-        }
     return {
         "digits": 5,
         "pip_size": 0.0001,

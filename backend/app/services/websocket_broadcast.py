@@ -19,6 +19,33 @@ def set_main_event_loop(loop: asyncio.AbstractEventLoop) -> None:
     _main_loop = loop
 
 
+def _schedule_broadcast(coro: Any, label: str) -> None:
+    """Run an async broadcast from sync/scheduler/tick threads."""
+    try:
+        loop = _main_loop
+        if loop is None or loop.is_closed():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+        if loop is not None and loop.is_running():
+            asyncio.run_coroutine_threadsafe(coro, loop)
+            return
+
+        if loop is not None and not loop.is_closed():
+            loop.run_until_complete(coro)
+            return
+
+        asyncio.run(coro)
+
+    except Exception:
+        logger.exception(
+            "WebSocket broadcast failed for %s",
+            label,
+        )
+
+
 def broadcast_candle_update(
     *,
     symbol: str,
@@ -88,28 +115,73 @@ def broadcast_candle_update(
             "timeframe": getattr(recommendation, "timeframe", None),
         }
 
-    coro = connection_manager.broadcast_channel(channel, payload)
+    _schedule_broadcast(
+        connection_manager.broadcast_channel(channel, payload),
+        channel,
+    )
 
-    try:
-        loop = _main_loop
-        if loop is None or loop.is_closed():
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
 
-        if loop is not None and loop.is_running():
-            asyncio.run_coroutine_threadsafe(coro, loop)
-            return
+def broadcast_tick_update(
+    *,
+    symbol: str,
+    bid: float,
+    ask: float,
+    mid: float,
+    time: str | None = None,
+) -> None:
+    """
+    Broadcast a live MT5 tick to all subscribers of the symbol.
 
-        if loop is not None and not loop.is_closed():
-            loop.run_until_complete(coro)
-            return
+    Safe to call from the tick streamer thread.
+    """
+    symbol = symbol.upper()
+    payload: dict[str, Any] = {
+        "type": "tick",
+        "symbol": symbol,
+        "bid": bid,
+        "ask": ask,
+        "mid": mid,
+        "time": time,
+        "source": "tick",
+    }
 
-        asyncio.run(coro)
+    _schedule_broadcast(
+        connection_manager.broadcast_for_symbol(symbol, payload),
+        f"tick:{symbol}",
+    )
 
-    except Exception:
-        logger.exception(
-            "WebSocket broadcast failed for %s",
-            channel,
+
+def broadcast_scanner_update(
+    *,
+    symbol: str,
+    timeframe: str | None = None,
+    opportunity: dict[str, Any] | None = None,
+    change_type: str | None = None,
+    price: float | None = None,
+) -> None:
+    """
+    Broadcast a scanner board delta to symbol subscribers.
+
+    Safe to call from scheduler / agent / analysis threads.
+    """
+    symbol = symbol.upper()
+    payload: dict[str, Any] = {
+        "type": "scanner_update",
+        "symbol": symbol,
+        "timeframe": timeframe.upper() if timeframe else None,
+        "change_type": change_type,
+        "price": price,
+        "opportunity": opportunity,
+    }
+
+    if timeframe:
+        channel = f"{symbol}:{timeframe.upper()}"
+        _schedule_broadcast(
+            connection_manager.broadcast_channel(channel, payload),
+            f"scanner:{channel}",
+        )
+    else:
+        _schedule_broadcast(
+            connection_manager.broadcast_for_symbol(symbol, payload),
+            f"scanner:{symbol}",
         )

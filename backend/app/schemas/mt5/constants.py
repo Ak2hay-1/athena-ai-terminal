@@ -7,7 +7,7 @@ the MT5 integration.
 
 from __future__ import annotations
 
-import MetaTrader5 as mt5
+from app.mt5.sdk import mt5
 
 # ==========================================================
 # Application

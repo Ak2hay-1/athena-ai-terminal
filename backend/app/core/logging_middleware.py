@@ -31,35 +31,6 @@ class LoggingMiddleware:
         path = scope.get("path", "-")
         status_code = 500
 
-        # #region agent log
-        if any(
-            marker in path
-            for marker in ("/docs", "/openapi", "/health", "/auth/login", "/auth/me")
-        ):
-            try:
-                import json
-                from pathlib import Path
-
-                Path(__file__).resolve().parents[3].joinpath("debug-9c9447.log").open(
-                    "a", encoding="utf-8"
-                ).write(
-                    json.dumps(
-                        {
-                            "sessionId": "9c9447",
-                            "runId": "pre-fix",
-                            "hypothesisId": "A",
-                            "location": "logging_middleware.py:entry",
-                            "message": "HTTP request entered ASGI middleware",
-                            "data": {"method": method, "path": path},
-                            "timestamp": int(time.time() * 1000),
-                        }
-                    )
-                    + "\n"
-                )
-            except Exception:
-                pass
-        # #endregion
-
         async def send_wrapper(message: Message) -> None:
             nonlocal status_code
             if message["type"] == "http.response.start":

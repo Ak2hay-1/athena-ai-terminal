@@ -43,6 +43,9 @@ class MarketScheduler:
         self.scheduler = BackgroundScheduler(
             timezone=settings.SCHEDULER_TIMEZONE,
         )
+        # Interval collectors skip while startup backfill runs to avoid
+        # racing the same deep MT5 pulls into market_candles.
+        self._startup_backfill_running = False
 
     def collect_pair(
         self,
@@ -61,6 +64,7 @@ class MarketScheduler:
             inserted = collector.collect(
                 symbol,
                 timeframe,
+                count=settings.MARKET_COLLECTOR_POLL_BARS,
             )
 
             latest_candle = None
@@ -78,6 +82,7 @@ class MarketScheduler:
                 recommendation = market_service.analyze_latest(
                     symbol=symbol,
                     timeframe=timeframe,
+                    explain_with_ai=False,
                 )
 
             if latest_candle is not None or recommendation is not None:
@@ -102,6 +107,19 @@ class MarketScheduler:
             db.close()
 
     def start(self) -> None:
+
+        if settings.MARKET_ENGINE_ENABLED:
+            # The tick-based market data engine owns candle generation,
+            # history sync, and candle-close analysis. Legacy interval
+            # collectors would race it with MT5 rate polls, so the
+            # scheduler stays idle (admin trigger endpoints still work
+            # against an empty job list).
+            self.scheduler.start()
+            logger.info(
+                "Market Scheduler idle: tick-based market data engine "
+                "is enabled."
+            )
+            return
 
         scheduled: set[str] = set()
 
@@ -130,6 +148,17 @@ class MarketScheduler:
                 coalesce=True,
             )
 
+        if settings.MARKET_STARTUP_BACKFILL_ENABLED:
+            # Pause interval collectors before any job can race deep inserts.
+            self._startup_backfill_running = True
+            self.scheduler.add_job(
+                self._run_startup_backfill,
+                trigger="date",
+                id="startup_backfill",
+                replace_existing=True,
+                max_instances=1,
+            )
+
         self.scheduler.start()
 
         logger.info(
@@ -138,10 +167,47 @@ class MarketScheduler:
             len(settings.MARKET_TIMEFRAMES),
         )
 
+    def _run_startup_backfill(self) -> None:
+        """One-shot deep backfill for shallow symbol/TF pairs."""
+
+        self._startup_backfill_running = True
+        try:
+            for timeframe in settings.MARKET_TIMEFRAMES:
+                for symbol in settings.MARKET_SYMBOLS:
+                    db = SessionLocal()
+                    try:
+                        service = MarketService(db)
+                        result = service.maybe_startup_backfill(symbol, timeframe)
+                        if result is not None:
+                            logger.info(
+                                "Startup backfill %s %s inserted=%d count=%d",
+                                symbol,
+                                timeframe,
+                                result.inserted,
+                                result.candle_count,
+                            )
+                    except Exception:
+                        logger.exception(
+                            "Startup backfill failed for %s %s",
+                            symbol,
+                            timeframe,
+                        )
+                    finally:
+                        db.close()
+        finally:
+            self._startup_backfill_running = False
+
     def _run_timeframe(
         self,
         timeframe: str,
     ) -> None:
+
+        if self._startup_backfill_running:
+            logger.info(
+                "Skipping collect_%s during startup backfill",
+                timeframe.lower(),
+            )
+            return
 
         for symbol in settings.MARKET_SYMBOLS:
 

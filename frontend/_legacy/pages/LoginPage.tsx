@@ -13,21 +13,12 @@ export function LoginPage() {
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError('')
-    // #region agent log
-    fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'300484'},body:JSON.stringify({sessionId:'300484',runId:'pre-fix',hypothesisId:'E',location:'_legacy/LoginPage.tsx:onSubmit',message:'legacy login submit',data:{usernameLen:username.length,passwordLen:password.length,href:window.location.href},timestamp:Date.now()})}).catch(()=>{})
-    // #endregion
 
     try {
       await login(username, password)
-      // #region agent log
-      fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'300484'},body:JSON.stringify({sessionId:'300484',runId:'pre-fix',hypothesisId:'D',location:'_legacy/LoginPage.tsx:onSubmit',message:'legacy login ok',data:{},timestamp:Date.now()})}).catch(()=>{})
-      // #endregion
       await refreshUser()
       navigate('/')
     } catch (err) {
-      // #region agent log
-      fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'300484'},body:JSON.stringify({sessionId:'300484',runId:'pre-fix',hypothesisId:'A',location:'_legacy/LoginPage.tsx:onSubmit',message:'legacy login catch',data:{error:err instanceof Error?err.message:String(err)},timestamp:Date.now()})}).catch(()=>{})
-      // #endregion
       setError('Invalid credentials')
     }
   }

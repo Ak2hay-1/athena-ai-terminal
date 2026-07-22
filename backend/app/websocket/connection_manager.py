@@ -33,6 +33,10 @@ class ConnectionManager:
             set[WebSocket],
         ] = defaultdict(set)
 
+        self.user_connections: dict[int, set[WebSocket]] = defaultdict(set)
+
+        self._socket_users: dict[int, int] = {}
+
         self._lock = asyncio.Lock()
 
     # -------------------------------------------------
@@ -40,6 +44,8 @@ class ConnectionManager:
     async def connect(
         self,
         websocket: WebSocket,
+        *,
+        user_id: int | None = None,
     ):
 
         await websocket.accept()
@@ -49,6 +55,9 @@ class ConnectionManager:
             self.connections.append(
                 websocket,
             )
+            if user_id is not None:
+                self.user_connections[user_id].add(websocket)
+                self._socket_users[id(websocket)] = user_id
 
         logger.info(
             "WebSocket connected (%d clients)",
@@ -76,9 +85,31 @@ class ConnectionManager:
                     websocket,
                 )
 
+            user_id = self._socket_users.pop(id(websocket), None)
+            if user_id is not None:
+                sockets = self.user_connections.get(user_id)
+                if sockets is not None:
+                    sockets.discard(websocket)
+                    if not sockets:
+                        self.user_connections.pop(user_id, None)
+
         logger.info(
             "WebSocket disconnected"
         )
+
+    async def send_to_user(
+        self,
+        user_id: int,
+        payload: dict,
+    ) -> int:
+        """Send payload to all sockets for a user. Returns recipient count."""
+        async with self._lock:
+            clients = list(self.user_connections.get(user_id, set()))
+        sent = 0
+        for websocket in clients:
+            await self.send(websocket, payload)
+            sent += 1
+        return sent
 
     # -------------------------------------------------
 
@@ -213,6 +244,26 @@ class ConnectionManager:
                 websocket,
                 payload,
             )
+
+    async def broadcast_for_symbol(
+        self,
+        symbol: str,
+        payload: dict,
+    ) -> None:
+        """
+        Send to every subscriber of SYMBOL or SYMBOL:TIMEFRAME.
+        """
+        symbol = symbol.upper()
+        prefix = f"{symbol}:"
+
+        async with self._lock:
+            clients: set[WebSocket] = set()
+            for channel, sockets in self.subscriptions.items():
+                if channel == symbol or channel.startswith(prefix):
+                    clients |= sockets
+
+        for websocket in list(clients):
+            await self.send(websocket, payload)
 
 
 connection_manager = ConnectionManager()

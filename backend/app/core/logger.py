@@ -7,6 +7,8 @@ Provides a centralized logger for the application.
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -29,6 +31,39 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 log_file = Path(settings.LOG_FILE)
 log_file.parent.mkdir(parents=True, exist_ok=True)
 
+
+class SafeRotatingFileHandler(RotatingFileHandler):
+    """
+    RotatingFileHandler that tolerates Windows file locks during rollover.
+
+    On Windows, os.rename fails with WinError 32 when another process (e.g.
+    uvicorn --reload parent, a second server instance, or a stale worker)
+    still has the log file open. Fall back to copy + truncate so logging
+    continues without emitting "--- Logging error ---" on every record.
+    """
+
+    def rotate(self, source: str, dest: str) -> None:
+        try:
+            super().rotate(source, dest)
+        except PermissionError:
+            if os.path.exists(dest):
+                try:
+                    os.remove(dest)
+                except OSError:
+                    pass
+            shutil.copy2(source, dest)
+            with open(source, "r+", encoding=self.encoding or "utf-8") as handle:
+                handle.truncate(0)
+
+    def doRollover(self) -> None:
+        try:
+            super().doRollover()
+        except Exception:
+            # Keep logging usable if rollover still fails (e.g. truncate blocked).
+            if self.stream is None and not self.delay:
+                self.stream = self._open()
+
+
 formatter = logging.Formatter(
     fmt=LOG_FORMAT,
     datefmt=DATE_FORMAT,
@@ -37,7 +72,7 @@ formatter = logging.Formatter(
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(formatter)
 
-file_handler = RotatingFileHandler(
+file_handler = SafeRotatingFileHandler(
     filename=log_file,
     maxBytes=10 * 1024 * 1024,
     backupCount=10,

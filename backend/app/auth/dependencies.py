@@ -21,7 +21,7 @@ from app.services.auth_service import AuthService
 # ==========================================================
 
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/auth/login",
+    tokenUrl="/api/v1/auth/token",
 )
 
 
@@ -175,6 +175,35 @@ def require_superuser(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Superuser access required.",
+        )
+
+    return current_user
+
+
+# ==========================================================
+# Risk disclaimer
+# ==========================================================
+
+def require_disclaimer_accepted(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """
+    Require acceptance of the latest risk disclaimer version.
+
+    Protects trading/analysis endpoints so users cannot bypass
+    the frontend gate via direct API calls.
+    """
+
+    from app.api.v1.disclaimer import DisclaimerService
+
+    if not DisclaimerService(db).has_accepted_current(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Risk disclaimer acceptance required. "
+                "Please accept the latest disclaimer before continuing."
+            ),
         )
 
     return current_user

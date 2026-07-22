@@ -1,35 +1,46 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MetricCard } from "@/components/ui/metric-card";
 import { MARKET_SYMBOLS, TIMEFRAMES } from "@/constants/markets";
 import { formatPercent } from "@/lib/utils";
-import { getLearningStats } from "@/services/learning";
+import { getLearningStats, getLearningSymbols } from "@/services/learning";
 import { getRecommendationHistory } from "@/services/recommendations";
 import { useAuthStore } from "@/store/auth-store";
 import { useDashboardStore } from "@/store/dashboard-store";
 
 export function AnalyticsView() {
   const user = useAuthStore((s) => s.user);
-  const symbol = useDashboardStore((s) => s.symbol);
+  const storeSymbol = useDashboardStore((s) => s.symbol);
   const timeframe = useDashboardStore((s) => s.timeframe);
   const setSymbol = useDashboardStore((s) => s.setSymbol);
   const setTimeframe = useDashboardStore((s) => s.setTimeframe);
+  const [symbolFilter, setSymbolFilter] = useState(storeSymbol);
+
+  const historySymbol = symbolFilter === "ALL" ? null : symbolFilter;
+  const isAll = symbolFilter === "ALL";
 
   const historyQuery = useQuery({
-    queryKey: ["recommendation", "history", symbol, timeframe, 100],
-    queryFn: () => getRecommendationHistory(symbol, timeframe, 100),
+    queryKey: ["recommendation", "history", symbolFilter, timeframe, 100],
+    queryFn: () => getRecommendationHistory(historySymbol, timeframe, 100),
     enabled: Boolean(user),
     refetchInterval: 60_000,
   });
 
   const learningQuery = useQuery({
-    queryKey: ["learning", "stats", symbol, timeframe],
-    queryFn: () => getLearningStats(symbol, timeframe),
-    enabled: Boolean(user),
+    queryKey: ["learning", "stats", symbolFilter, timeframe],
+    queryFn: () => getLearningStats(symbolFilter, timeframe),
+    enabled: Boolean(user) && !isAll,
+    refetchInterval: 120_000,
+  });
+
+  const symbolsQuery = useQuery({
+    queryKey: ["learning", "symbols"],
+    queryFn: getLearningSymbols,
+    enabled: Boolean(user) && isAll,
     refetchInterval: 120_000,
   });
 
@@ -50,6 +61,7 @@ export function AnalyticsView() {
       strongBuy: items.filter((i) => i.signal === "STRONG_BUY").length,
       buy: items.filter((i) => i.signal === "BUY").length,
       hold: items.filter((i) => i.signal === "HOLD" || i.signal === "NEUTRAL").length,
+      noTrade: items.filter((i) => i.signal === "NO_TRADE").length,
       sell: items.filter((i) => i.signal === "SELL").length,
       strongSell: items.filter((i) => i.signal === "STRONG_SELL").length,
     };
@@ -72,6 +84,9 @@ export function AnalyticsView() {
     (a, b) => b[1] - a[1],
   );
 
+  const symbolStats = symbolsQuery.data ?? [];
+  const label = isAll ? "all pairs" : symbolFilter;
+
   return (
     <div className="mx-auto max-w-[1400px] space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-4">
@@ -83,21 +98,28 @@ export function AnalyticsView() {
             Performance intelligence
           </h1>
           <p className="mt-1 text-sm text-muted">
-            Recommendation distribution and learning stats for {symbol} {timeframe}
+            Recommendation distribution and learning stats for {label} {timeframe}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone="ai">
             Model{" "}
-            {learningQuery.data?.modelAccuracy != null
+            {!isAll && learningQuery.data?.modelAccuracy != null
               ? formatPercent(Math.round(learningQuery.data.modelAccuracy * 100))
-              : "n/a"}
+              : isAll
+                ? "all pairs"
+                : "n/a"}
           </Badge>
           <select
-            value={symbol}
-            onChange={(event) => setSymbol(event.target.value)}
+            value={symbolFilter}
+            onChange={(event) => {
+              const next = event.target.value;
+              setSymbolFilter(next);
+              if (next !== "ALL") setSymbol(next);
+            }}
             className="h-9 rounded-sm border border-border bg-panel px-3 font-mono text-sm outline-none focus:border-primary/50"
           >
+            <option value="ALL">ALL</option>
             {MARKET_SYMBOLS.map((item) => (
               <option key={item} value={item}>
                 {item}
@@ -133,9 +155,13 @@ export function AnalyticsView() {
           tone="primary"
         />
         <MetricCard
-          label="Learning samples"
-          value={`${learningQuery.data?.sampleSize ?? 0}`}
-          hint="Labeled outcomes"
+          label={isAll ? "Symbols tracked" : "Learning samples"}
+          value={
+            isAll
+              ? `${symbolStats.length}`
+              : `${learningQuery.data?.sampleSize ?? 0}`
+          }
+          hint={isAll ? "Learning symbol table" : "Labeled outcomes"}
           tone="bullish"
         />
       </div>
@@ -150,16 +176,17 @@ export function AnalyticsView() {
               [
                 ["STRONG BUY", analytics.distribution.strongBuy, "bullish"],
                 ["BUY", analytics.distribution.buy, "bullish"],
-                ["HOLD / NEUTRAL", analytics.distribution.hold, "neutral"],
+                ["STANDBY (HOLD)", analytics.distribution.hold, "neutral"],
+                ["NO TRADE", analytics.distribution.noTrade, "warning"],
                 ["SELL", analytics.distribution.sell, "bearish"],
                 ["STRONG SELL", analytics.distribution.strongSell, "bearish"],
               ] as const
-            ).map(([label, count, tone]) => {
+            ).map(([labelRow, count, tone]) => {
               const pct = analytics.total ? Math.round((count / analytics.total) * 100) : 0;
               return (
-                <div key={label}>
+                <div key={labelRow}>
                   <div className="mb-1 flex justify-between text-xs">
-                    <span className="text-muted">{label}</span>
+                    <span className="text-muted">{labelRow}</span>
                     <span className="font-mono">
                       {count} · {pct}%
                     </span>
@@ -171,7 +198,9 @@ export function AnalyticsView() {
                           ? "h-full bg-bullish/70"
                           : tone === "bearish"
                             ? "h-full bg-bearish/70"
-                            : "h-full bg-zinc-500/70"
+                            : tone === "warning"
+                              ? "h-full bg-warning/70"
+                              : "h-full bg-zinc-500/70"
                       }
                       style={{ width: `${pct}%` }}
                     />
@@ -187,10 +216,30 @@ export function AnalyticsView() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Pattern win rates</CardTitle>
+            <CardTitle>{isAll ? "Per-symbol performance" : "Pattern win rates"}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {patternEntries.length === 0 ? (
+            {isAll ? (
+              symbolStats.length === 0 ? (
+                <p className="text-sm text-muted">
+                  No per-symbol learning stats yet.
+                </p>
+              ) : (
+                symbolStats.slice(0, 12).map((row) => (
+                  <div
+                    key={row.symbol}
+                    className="flex items-center justify-between rounded-sm border border-border/60 px-3 py-2 text-sm"
+                  >
+                    <span className="font-mono font-semibold tracking-wide">{row.symbol}</span>
+                    <span className="font-mono tabular-nums text-muted">
+                      WR {formatPercent(Math.round(row.win_rate * (row.win_rate <= 1 ? 100 : 1)))}
+                      {" · "}
+                      {row.recommendations} recs
+                    </span>
+                  </div>
+                ))
+              )
+            ) : patternEntries.length === 0 ? (
               <p className="text-sm text-muted">
                 No labeled pattern stats yet. Outcomes populate as trades resolve.
               </p>
@@ -212,10 +261,21 @@ export function AnalyticsView() {
 
         <Card className="xl:col-span-2">
           <CardHeader>
-            <CardTitle>Adaptive confluence weights</CardTitle>
+            <CardTitle>
+              {isAll ? "Cross-pair notes" : "Adaptive confluence weights"}
+            </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {weightEntries.length === 0 ? (
+          <CardContent
+            className={
+              isAll ? "space-y-2" : "grid gap-2 sm:grid-cols-2 lg:grid-cols-3"
+            }
+          >
+            {isAll ? (
+              <p className="text-sm text-muted">
+                Select a specific pair to inspect adaptive confluence weights and
+                pattern win rates for that symbol/timeframe.
+              </p>
+            ) : weightEntries.length === 0 ? (
               <p className="text-sm text-muted sm:col-span-2 lg:col-span-3">
                 Weights unavailable for this symbol/timeframe.
               </p>

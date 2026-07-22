@@ -4,9 +4,24 @@ Deterministic confidence scoring (not LLM).
 
 from __future__ import annotations
 
+from copy import deepcopy
+from typing import TypedDict
+
 from app.core.settings import settings
 from app.risk.models import StructureContext
 from app.risk.models import TradeDirection
+
+
+class ConfidenceComponents(TypedDict):
+    """Raw weighted component scores before category remapping."""
+
+    trend: float
+    smc: float
+    liquidity: float
+    volume: float
+    multi_tf: float
+    news: float
+    risk_quality: float
 
 
 class ConfidenceEngine:
@@ -24,6 +39,40 @@ class ConfidenceEngine:
         "risk_quality": 5,
     }
 
+    def __init__(self, weights: dict[str, float] | None = None) -> None:
+        base = deepcopy(self.WEIGHTS)
+        if weights:
+            for key, value in weights.items():
+                if key in base:
+                    base[key] = float(value)
+        self.weights = base
+
+    def score_components(
+        self,
+        context: StructureContext,
+        direction: TradeDirection,
+        *,
+        at_liquidity_tp: bool = False,
+        structure_sl: bool = False,
+        risk_reward: float = 0.0,
+    ) -> ConfidenceComponents:
+        """
+        Return the seven weighted component scores used by ``score``.
+        """
+        return ConfidenceComponents(
+            trend=self._trend_score(context, direction),
+            smc=self._smc_score(context, direction),
+            liquidity=self._liquidity_score(context, direction, at_liquidity_tp),
+            volume=self._volume_score(context),
+            multi_tf=self._multi_tf_score(context, direction),
+            news=self._news_score(context, direction),
+            risk_quality=self._risk_quality_score(
+                structure_sl=structure_sl,
+                risk_reward=risk_reward,
+                at_liquidity_tp=at_liquidity_tp,
+            ),
+        )
+
     def score(
         self,
         context: StructureContext,
@@ -33,18 +82,14 @@ class ConfidenceEngine:
         structure_sl: bool = False,
         risk_reward: float = 0.0,
     ) -> int:
-        total = 0
-        total += self._trend_score(context, direction)
-        total += self._smc_score(context, direction)
-        total += self._liquidity_score(context, direction, at_liquidity_tp)
-        total += self._volume_score(context)
-        total += self._multi_tf_score(context, direction)
-        total += self._news_score(context, direction)
-        total += self._risk_quality_score(
+        components = self.score_components(
+            context,
+            direction,
+            at_liquidity_tp=at_liquidity_tp,
             structure_sl=structure_sl,
             risk_reward=risk_reward,
-            at_liquidity_tp=at_liquidity_tp,
         )
+        total = sum(components.values())
         return max(0, min(100, int(round(total))))
 
     def _trend_score(
@@ -52,7 +97,7 @@ class ConfidenceEngine:
         context: StructureContext,
         direction: TradeDirection,
     ) -> float:
-        max_w = self.WEIGHTS["trend"]
+        max_w = self.weights["trend"]
         if direction == TradeDirection.BUY and context.trend == "BULLISH":
             return max_w
         if direction == TradeDirection.SELL and context.trend == "BEARISH":
@@ -66,7 +111,7 @@ class ConfidenceEngine:
         context: StructureContext,
         direction: TradeDirection,
     ) -> float:
-        max_w = self.WEIGHTS["smc"]
+        max_w = self.weights["smc"]
         score = 0.0
         want = "bullish" if direction == TradeDirection.BUY else "bearish"
 
@@ -91,7 +136,7 @@ class ConfidenceEngine:
         direction: TradeDirection,
         at_liquidity_tp: bool,
     ) -> float:
-        max_w = self.WEIGHTS["liquidity"]
+        max_w = self.weights["liquidity"]
         score = 0.0
         if direction == TradeDirection.BUY:
             if context.liquidity_targets_high:
@@ -108,7 +153,7 @@ class ConfidenceEngine:
         return min(max_w, score)
 
     def _volume_score(self, context: StructureContext) -> float:
-        max_w = self.WEIGHTS["volume"]
+        max_w = self.weights["volume"]
         if context.avg_volume <= 0:
             return max_w * 0.4
         ratio = context.volume / context.avg_volume
@@ -126,7 +171,7 @@ class ConfidenceEngine:
         context: StructureContext,
         direction: TradeDirection,
     ) -> float:
-        max_w = self.WEIGHTS["multi_tf"]
+        max_w = self.weights["multi_tf"]
         mtf = (context.multi_tf_trend or "").upper()
         if not mtf:
             return max_w * 0.4
@@ -143,7 +188,7 @@ class ConfidenceEngine:
         context: StructureContext,
         direction: TradeDirection,
     ) -> float:
-        max_w = self.WEIGHTS["news"]
+        max_w = self.weights["news"]
         if context.news_high_impact:
             return 0.0
         sentiment = context.news_sentiment
@@ -164,7 +209,7 @@ class ConfidenceEngine:
         risk_reward: float,
         at_liquidity_tp: bool,
     ) -> float:
-        max_w = self.WEIGHTS["risk_quality"]
+        max_w = self.weights["risk_quality"]
         score = 0.0
         if structure_sl:
             score += max_w * 0.4

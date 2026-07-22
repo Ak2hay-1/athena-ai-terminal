@@ -28,7 +28,9 @@ Current focus:
 
 Overall project maturity:
 
-**Beta**
+**Beta — locally usable (paper)**
+
+> This table was refreshed July 2026. Prefer [FEATURES.md](../../FEATURES.md), [READY.md](../../READY.md), and [PROJECT_STATUS.md](../../PROJECT_STATUS.md).
 
 ---
 
@@ -37,28 +39,28 @@ Overall project maturity:
 | Module | Status | Progress |
 |----------|--------|----------|
 | Project Structure | ✅ Complete | 100% |
-| Documentation | ✅ Complete | 100% |
+| Documentation | ✅ Complete | 95% |
 | Configuration System | ✅ Complete | 100% |
-| Database Layer | ✅ Complete | 100% |
-| SQLAlchemy Models | ✅ Complete | 100% |
-| Repository Layer | ✅ Complete | 100% |
-| Service Layer | ✅ Complete | 100% |
-| MT5 Integration | ✅ Complete | 95% |
-| Candle Collector | ✅ Complete | 95% |
-| Scheduler | ✅ Complete | 95% |
+| Database Layer | ✅ Complete | 95% |
+| SQLAlchemy Models | ✅ Complete | 95% |
+| Repository Layer | ✅ Complete | 95% |
+| Service Layer | ✅ Complete | 95% |
+| MT5 Integration | ✅ Complete (Windows) | 90% |
+| Candle Collector | ✅ Complete | 90% |
+| Scheduler | ✅ Complete | 90% |
 | Indicator Engine | ✅ Complete | 95% |
 | Pattern Engine | ✅ Complete | 90% |
 | Market Analysis Engine | ✅ Complete | 90% |
-| Recommendation Engine | 🚧 In Progress | 85% |
-| AI Integration | 🚧 In Progress | 85% |
-| REST API | 🚧 In Progress | 90% |
-| WebSocket | 🚧 In Progress | 85% |
-| Authentication | ⏳ Planned | 0% |
-| Portfolio Module | ⏳ Planned | 0% |
-| Trade Execution | ⏳ Planned | 0% |
-| Strategy Engine | ⏳ Planned | 0% |
-| Notification System | ⏳ Planned | 0% |
-| Frontend | ⏳ Planned | 0% |
+| Recommendation Engine | ✅ Complete | 90% |
+| AI Integration | ✅ Complete | 90% |
+| REST API | ✅ Complete | 95% |
+| WebSocket | ✅ Complete (JWT) | 90% |
+| Authentication | ✅ Complete | 95% |
+| Portfolio Module | ✅ Basic | 80% |
+| Trade Execution | ✅ Paper DB / partial live | 85% |
+| Strategy Engine | 🚧 Playbook UI | 50% |
+| Notification System | ⏳ Derived alerts only | 30% |
+| Frontend | 🚧 Next.js terminal | 75% |
 | Mobile App | ⏳ Planned | 0% |
 
 ---
@@ -222,11 +224,11 @@ Highest priority work
 
 - Local model responses occasionally fail validation.
 - Prompt tuning is ongoing.
-- Provider abstraction not yet implemented.
+- Provider abstraction is implemented (Gemini primary, configurable fallbacks).
 
 Priority
 
-High
+Medium
 
 ---
 

@@ -14,6 +14,12 @@ from pydantic import Field
 
 from app.core.enums import RecommendationSignal
 from app.core.enums import TrendDirection
+from app.risk.models import ValidationFlags
+from app.schemas.institutional import ChecklistItem
+from app.schemas.institutional import ConfidenceBreakdown
+from app.schemas.institutional import EntryZone
+from app.schemas.institutional import MarketHeatmap
+from app.schemas.probability import TradeProbabilityResult
 
 
 # ==========================================================
@@ -67,7 +73,57 @@ class RecommendationBase(BaseModel):
 
     tp_reason: str = ""
 
-    validation: dict[str, Any] = Field(default_factory=dict)
+    validation: ValidationFlags = Field(default_factory=ValidationFlags)
+
+    confidence_breakdown: ConfidenceBreakdown | None = None
+
+    institutional_checklist: list[ChecklistItem] = Field(default_factory=list)
+
+    market_heatmap: MarketHeatmap | None = None
+
+    entry_zone: EntryZone | None = None
+
+    trade_probability: int = Field(default=0, ge=0, le=100)
+
+    similar_trade_count: int = Field(default=0, ge=0)
+
+    historical_win_rate: int = Field(default=0, ge=0, le=100)
+
+    expected_rr: Decimal = Decimal("0")
+
+    expected_hold_time: str = ""
+
+    trade_quality: int = Field(default=0, ge=0, le=100)
+
+    quality_grade: str = ""
+
+    historical_insights: list[str] = Field(default_factory=list)
+
+    probability_detail: TradeProbabilityResult | None = None
+
+    setup_quality: int = Field(default=0, ge=0, le=100)
+
+    setup_quality_grade: str = ""
+
+    setup_quality_components: dict[str, Any] = Field(default_factory=dict)
+
+    scanner_group: str = "no_trade"
+
+    lifecycle_state: str = "NEW"
+
+    rejection_checklist: list[dict[str, Any]] = Field(default_factory=list)
+
+    qualification_score: int = Field(default=0, ge=0, le=100)
+
+    trend_strength: float = 0.0
+
+    correlated: bool = False
+
+    correlation_note: str = ""
+
+    parent_recommendation_id: int | None = None
+
+    market_regime: str | None = None
 
     analysis: dict[str, Any]
 
@@ -117,10 +173,34 @@ class RecommendationQuery(BaseModel):
 
     symbol: str
 
-    timeframe: str
+    timeframe: str | None = None
 
     limit: int = Field(
         default=100,
         ge=1,
         le=1000,
     )
+
+
+class TimeframeSignalSnapshot(BaseModel):
+    """Latest signal snapshot for one timeframe (scenario strip)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    timeframe: str
+    signal: RecommendationSignal
+    confidence: int = Field(ge=0, le=100)
+    trend: TrendDirection
+    confluence: int = Field(default=0, ge=0, le=100)
+    recommendation_id: int | None = None
+    created_at: datetime | None = None
+
+
+class SymbolScenarioRead(BaseModel):
+    """
+    Overall trade scenario for a symbol across timeframes.
+    """
+
+    symbol: str
+    best: RecommendationRead | None = None
+    by_timeframe: list[TimeframeSignalSnapshot] = Field(default_factory=list)

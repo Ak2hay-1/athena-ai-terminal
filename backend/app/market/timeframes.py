@@ -1,4 +1,4 @@
-import MetaTrader5 as mt5
+from app.mt5.sdk import mt5
 
 TIMEFRAMES = {
     "M1": mt5.TIMEFRAME_M1,

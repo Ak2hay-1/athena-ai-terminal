@@ -33,6 +33,7 @@ engine: Engine = create_engine(
     pool_recycle=settings.DB_POOL_RECYCLE,
     pool_size=settings.DB_POOL_SIZE,
     max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_timeout=5,
     future=True,
 )
 

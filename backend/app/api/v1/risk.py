@@ -10,9 +10,10 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from app.auth.dependencies import require_trader
+from app.core.logger import logger
 from app.core.settings import settings
 from app.models.user import User
-from app.trading.paper_execution import paper_execution
+from app.trading.order_manager import order_manager
 
 router = APIRouter(
     prefix="/risk",
@@ -56,9 +57,13 @@ def risk_limits(
 )
 def assess_risk(
     payload: RiskAssessmentRequest,
-    _: User = Depends(require_trader),
+    user: User = Depends(require_trader),
 ):
-    open_count = len(paper_execution.positions())
+    try:
+        open_count = len(order_manager.positions(user_id=user.id) or [])
+    except Exception:
+        logger.exception("Failed to count open positions for risk assess")
+        open_count = settings.MAX_OPEN_TRADES
 
     allowed = open_count < settings.MAX_OPEN_TRADES
 

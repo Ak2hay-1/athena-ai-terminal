@@ -26,7 +26,7 @@ class TradeOrder(BaseModel):
     Unified trading order model.
 
     This schema represents an order independently of the
-    execution provider (MT5, Paper Trading, etc.).
+    execution provider (MT5, etc.).
     """
 
     model_config = ConfigDict(

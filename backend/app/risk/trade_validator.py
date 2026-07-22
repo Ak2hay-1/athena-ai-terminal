@@ -1,5 +1,7 @@
 """
 Institutional trade validation gates.
+
+Any critical failure => NO_TRADE (never soft-downgrade confidence).
 """
 
 from __future__ import annotations
@@ -8,6 +10,7 @@ from dataclasses import dataclass
 
 from app.core.logger import logger
 from app.core.settings import settings
+from app.qualification.market_regime import regime_allows_directional_trade
 from app.risk.models import StructureContext
 from app.risk.models import TradeDirection
 from app.risk.models import ValidationFlags
@@ -23,7 +26,8 @@ class ValidationResult:
 
 class TradeValidator:
     """
-    Any critical failure => NO_TRADE.
+    Critical failures immediately reject the trade.
+    Do NOT reduce confidence — return NO_TRADE upstream.
     """
 
     def validate(
@@ -37,6 +41,10 @@ class TradeValidator:
         risk_reward: float,
         used_structure: str,
         at_liquidity_tp: bool,
+        spread: float | None = None,
+        market_regime: str | None = None,
+        mtf_aligned: bool | None = None,
+        trend_strength: float | None = None,
     ) -> ValidationResult:
         flags = ValidationFlags()
         reasons: list[str] = []
@@ -45,6 +53,14 @@ class TradeValidator:
         flags.trend = context.trend == want_trend
         if not flags.trend:
             reasons.append(f"Trend {context.trend} does not align with {direction.value}.")
+
+        # Weak trend (ADX) is a hard reject when provided
+        min_adx = float(settings.QUAL_MIN_ADX)
+        if trend_strength is not None and float(trend_strength) < min_adx:
+            flags.trend = False
+            reasons.append(
+                f"Trend weak (ADX={float(trend_strength):.1f} < {min_adx:.1f})."
+            )
 
         want_smc = "bullish" if direction == TradeDirection.BUY else "bearish"
         flags.bos = (
@@ -56,7 +72,6 @@ class TradeValidator:
             and str(context.choch_direction or "").lower() == want_smc
         )
 
-        # Structure confirmation: BOS preferred; CHOCH accepted as alternative MSS.
         structure_confirm = flags.bos or flags.choch
         if settings.REQUIRE_BOS and not structure_confirm:
             reasons.append("BOS/CHOCH not confirmed in trade direction.")
@@ -66,22 +81,25 @@ class TradeValidator:
         bos_ok = structure_confirm if settings.REQUIRE_BOS else True
         choch_ok = flags.choch if settings.REQUIRE_CHOCH else True
 
+        # Poor structure (no BOS/CHOCH when required) already gated; also reject
+        # ATR-only SL as poor structure when REQUIRE_BOS is on.
+        poor_structure = used_structure in {"none", "atr_fallback", ""}
+        if settings.REQUIRE_BOS and poor_structure and not structure_confirm:
+            reasons.append("Poor structure — no valid structural invalidation.")
+
         min_ratio = float(settings.VOLUME_MIN_RATIO)
         if context.avg_volume <= 0:
             flags.volume = True
         else:
             flags.volume = (context.volume / context.avg_volume) >= min_ratio
         if not flags.volume:
-            reasons.append("Volume does not support the move.")
+            reasons.append("Poor liquidity — volume does not support the move.")
 
         flags.atr = bool(context.atr_ok and not context.tight_range and context.atr > 0)
         if not flags.atr:
-            reasons.append("ATR too low or market ranging tightly.")
+            reasons.append("ATR below threshold or market ranging tightly.")
 
         flags.structure_sl = used_structure not in {"none", "atr_fallback", ""}
-        # Structure SL preferred; ATR fallback allowed only if structure missing
-        # but still must pass min distance / RR. Critical: SL must be behind structure
-        # geometrically relative to entry.
         if direction == TradeDirection.BUY:
             geometry_ok = stop_loss < entry < take_profit
             behind = stop_loss < entry
@@ -91,17 +109,17 @@ class TradeValidator:
 
         if not behind or not geometry_ok:
             flags.structure_sl = False
-            reasons.append("Stop loss is not behind structure / invalid geometry.")
+            reasons.append("Invalid SL — not behind structure / invalid geometry.")
 
         flags.liquidity = at_liquidity_tp or risk_reward >= float(settings.MIN_RR)
         if not at_liquidity_tp and risk_reward < float(settings.MIN_RR):
             flags.liquidity = False
-            reasons.append("Take profit not at liquidity and RR below minimum.")
+            reasons.append("Poor liquidity at TP and RR below minimum.")
 
         flags.risk_reward = risk_reward >= float(settings.MIN_RR)
         if not flags.risk_reward:
             reasons.append(
-                f"Risk reward {risk_reward:.2f} below minimum {settings.MIN_RR}."
+                f"RR below minimum ({risk_reward:.2f} < {settings.MIN_RR})."
             )
 
         profile = get_symbol_profile(context.symbol, atr=context.atr)
@@ -120,6 +138,31 @@ class TradeValidator:
                 f"Blocked: high-impact news within {settings.NEWS_BLOCK_MINUTES} minutes."
             )
 
+        # Spread hard gate
+        flags.spread = True
+        if spread is not None and context.price > 0:
+            max_frac = float(settings.QUAL_MAX_SPREAD_FRACTION)
+            spread_frac = float(spread) / float(context.price)
+            flags.spread = spread_frac <= max_frac
+            if not flags.spread:
+                reasons.append(
+                    f"Spread too high ({spread_frac:.6f} > {max_frac:.6f})."
+                )
+
+        # Regime hard gate
+        flags.regime = True
+        if market_regime:
+            flags.regime = regime_allows_directional_trade(market_regime)
+            if not flags.regime:
+                reasons.append(f"Regime {market_regime} incompatible with directional trade.")
+
+        # MTF hard gate (when caller supplies alignment result)
+        flags.mtf = True if mtf_aligned is None else bool(mtf_aligned)
+        if mtf_aligned is False:
+            reasons.append("Higher timeframe disagreement.")
+
+        structure_ok = (not poor_structure) or (not settings.REQUIRE_BOS) or structure_confirm
+
         critical_ok = (
             flags.trend
             and bos_ok
@@ -132,6 +175,10 @@ class TradeValidator:
             and flags.risk_reward
             and flags.risk_distance
             and flags.news
+            and flags.spread
+            and flags.regime
+            and flags.mtf
+            and structure_ok
         )
 
         if not critical_ok:

@@ -10,9 +10,11 @@ from __future__ import annotations
 import pandas as pd
 
 from app.core.logger import logger
+from app.risk.confidence_engine import ConfidenceEngine
 from app.risk.confidence_engine import confidence_engine
 from app.risk.entry_service import entry_service
 from app.risk.models import EntryType
+from app.risk.models import RiskPlanBundle
 from app.risk.models import StructureContext
 from app.risk.models import TradeDirection
 from app.risk.models import TradePlan
@@ -23,6 +25,30 @@ from app.risk.symbol_profile import distance_to_pips
 from app.risk.symbol_profile import get_symbol_profile
 from app.risk.take_profit_service import take_profit_service
 from app.risk.trade_validator import trade_validator
+
+
+def _empty_context(symbol: str, timeframe: str) -> StructureContext:
+    """Minimal context when structure building fails."""
+    return StructureContext(
+        symbol=symbol,
+        timeframe=timeframe,
+        price=0.0,
+        atr=0.0,
+        trend="SIDEWAYS",
+        volume=0.0,
+        avg_volume=0.0,
+        bos_active=False,
+        bos_direction=None,
+        choch_active=False,
+        choch_direction=None,
+        in_premium=False,
+        in_discount=False,
+        equilibrium=None,
+        range_high=None,
+        range_low=None,
+        atr_ok=False,
+        tight_range=True,
+    )
 
 
 class RiskEngine:
@@ -40,7 +66,17 @@ class RiskEngine:
         news_context: dict | None = None,
         multi_tf_trend: str | None = None,
         context: StructureContext | None = None,
-    ) -> TradePlan:
+        confidence_weights: dict[str, float] | None = None,
+        market_regime: str | None = None,
+        mtf_aligned: bool | None = None,
+        trend_strength: float | None = None,
+        spread: float | None = None,
+    ) -> RiskPlanBundle:
+        scorer = (
+            ConfidenceEngine(confidence_weights)
+            if confidence_weights
+            else confidence_engine
+        )
         try:
             ctx = context or structure_context_builder.build(
                 dataframe,
@@ -52,31 +88,67 @@ class RiskEngine:
             )
         except Exception as exc:
             logger.exception(exc)
-            return TradePlan(
-                signal="NO_TRADE",
-                trend="SIDEWAYS",
-                reasons=[f"Structure context failed: {exc}"],
+            return RiskPlanBundle(
+                plan=TradePlan(
+                    signal="NO_TRADE",
+                    trend="SIDEWAYS",
+                    reasons=[f"Structure context failed: {exc}"],
+                ),
+                context=_empty_context(symbol, timeframe),
             )
 
         direction = self._direction_from_trend(ctx.trend)
         if direction is None:
-            return TradePlan(
-                signal="NO_TRADE",
-                entry=ctx.price,
-                entry_type=EntryType.NONE,
-                stop_loss=ctx.price,
-                take_profit=ctx.price,
-                confidence=0,
-                trend=ctx.trend,
-                sl_reason="No directional trend",
-                tp_reason="No trade",
-                validation=ValidationFlags(
-                    trend=False,
-                    atr=ctx.atr_ok and not ctx.tight_range,
-                    news=not ctx.news_high_impact,
+            return RiskPlanBundle(
+                plan=TradePlan(
+                    signal="NO_TRADE",
+                    entry=ctx.price,
+                    entry_type=EntryType.NONE,
+                    stop_loss=ctx.price,
+                    take_profit=ctx.price,
+                    confidence=0,
+                    trend=ctx.trend,
+                    sl_reason="No directional trend",
+                    tp_reason="No trade",
+                    validation=ValidationFlags(
+                        trend=False,
+                        atr=ctx.atr_ok and not ctx.tight_range,
+                        news=not ctx.news_high_impact,
+                        regime=True,
+                    ),
+                    reasons=["Market trend is sideways; no trade."],
                 ),
-                reasons=["Market trend is sideways; no trade."],
+                context=ctx,
             )
+
+        # Regime compatibility — reject before entry/SL/TP work when incompatible
+        if market_regime:
+            from app.qualification.market_regime import regime_allows_directional_trade
+
+            if not regime_allows_directional_trade(market_regime):
+                return RiskPlanBundle(
+                    plan=TradePlan(
+                        signal="NO_TRADE",
+                        entry=ctx.price,
+                        entry_type=EntryType.NONE,
+                        stop_loss=ctx.price,
+                        take_profit=ctx.price,
+                        confidence=0,
+                        trend=ctx.trend,
+                        sl_reason="Regime incompatible",
+                        tp_reason="No trade",
+                        validation=ValidationFlags(
+                            trend=True,
+                            atr=ctx.atr_ok and not ctx.tight_range,
+                            news=not ctx.news_high_impact,
+                            regime=False,
+                        ),
+                        reasons=[
+                            f"Regime {market_regime} disables directional strategies.",
+                        ],
+                    ),
+                    context=ctx,
+                )
 
         # 1) Invalidation / SL from structure (reference = market; refined after entry)
         provisional_sl = stop_loss_service.calculate(
@@ -85,21 +157,24 @@ class RiskEngine:
             reference_price=ctx.price,
         )
         if not provisional_sl.valid:
-            return TradePlan(
-                signal="NO_TRADE",
-                entry=ctx.price,
-                entry_type=EntryType.NONE,
-                stop_loss=ctx.price,
-                take_profit=ctx.price,
-                confidence=0,
-                trend=ctx.trend,
-                sl_reason=provisional_sl.sl_reason,
-                tp_reason="No trade",
-                validation=ValidationFlags(
-                    atr=False,
-                    news=not ctx.news_high_impact,
+            return RiskPlanBundle(
+                plan=TradePlan(
+                    signal="NO_TRADE",
+                    entry=ctx.price,
+                    entry_type=EntryType.NONE,
+                    stop_loss=ctx.price,
+                    take_profit=ctx.price,
+                    confidence=0,
+                    trend=ctx.trend,
+                    sl_reason=provisional_sl.sl_reason,
+                    tp_reason="No trade",
+                    validation=ValidationFlags(
+                        atr=False,
+                        news=not ctx.news_high_impact,
+                    ),
+                    reasons=[provisional_sl.sl_reason],
                 ),
-                reasons=[provisional_sl.sl_reason],
+                context=ctx,
             )
 
         # 2) Entry from structure POIs (limit preferred), constrained by provisional SL
@@ -116,21 +191,24 @@ class RiskEngine:
             reference_price=entry_result.entry,
         )
         if not sl_result.valid:
-            return TradePlan(
-                signal="NO_TRADE",
-                entry=entry_result.entry,
-                entry_type=EntryType.NONE,
-                stop_loss=entry_result.entry,
-                take_profit=entry_result.entry,
-                confidence=0,
-                trend=ctx.trend,
-                sl_reason=sl_result.sl_reason,
-                entry_reason=entry_result.entry_reason,
-                reasons=[sl_result.sl_reason],
+            return RiskPlanBundle(
+                plan=TradePlan(
+                    signal="NO_TRADE",
+                    entry=entry_result.entry,
+                    entry_type=EntryType.NONE,
+                    stop_loss=entry_result.entry,
+                    take_profit=entry_result.entry,
+                    confidence=0,
+                    trend=ctx.trend,
+                    sl_reason=sl_result.sl_reason,
+                    entry_reason=entry_result.entry_reason,
+                    reasons=[sl_result.sl_reason],
+                ),
+                context=ctx,
             )
 
         # 4) Provisional confidence (pre-TP) for dynamic RR
-        provisional_confidence = confidence_engine.score(
+        provisional_confidence = scorer.score(
             ctx,
             direction,
             structure_sl=sl_result.used_structure not in {"none", "atr_fallback"},
@@ -145,7 +223,7 @@ class RiskEngine:
             confidence=provisional_confidence,
         )
 
-        confidence = confidence_engine.score(
+        confidence = scorer.score(
             ctx,
             direction,
             at_liquidity_tp=tp_result.at_liquidity,
@@ -162,6 +240,10 @@ class RiskEngine:
             risk_reward=tp_result.risk_reward,
             used_structure=sl_result.used_structure,
             at_liquidity_tp=tp_result.at_liquidity,
+            spread=spread,
+            market_regime=market_regime,
+            mtf_aligned=mtf_aligned,
+            trend_strength=trend_strength,
         )
 
         profile = get_symbol_profile(ctx.symbol, atr=ctx.atr)
@@ -175,10 +257,32 @@ class RiskEngine:
                 timeframe,
                 validation.reasons,
             )
-            return TradePlan(
-                signal="NO_TRADE",
+            return RiskPlanBundle(
+                plan=TradePlan(
+                    signal="NO_TRADE",
+                    entry=entry_result.entry,
+                    entry_type=EntryType.NONE,
+                    stop_loss=sl_result.stop_loss,
+                    take_profit=tp_result.take_profit,
+                    risk_pips=risk_pips,
+                    reward_pips=reward_pips,
+                    risk_reward=tp_result.risk_reward,
+                    confidence=confidence,
+                    sl_reason=sl_result.sl_reason,
+                    tp_reason=tp_result.tp_reason,
+                    entry_reason=entry_result.entry_reason,
+                    trend=ctx.trend,
+                    validation=validation.flags,
+                    reasons=validation.reasons or ["Validation failed."],
+                ),
+                context=ctx,
+            )
+
+        return RiskPlanBundle(
+            plan=TradePlan(
+                signal=direction.value,
                 entry=entry_result.entry,
-                entry_type=EntryType.NONE,
+                entry_type=entry_result.entry_type,
                 stop_loss=sl_result.stop_loss,
                 take_profit=tp_result.take_profit,
                 risk_pips=risk_pips,
@@ -190,25 +294,9 @@ class RiskEngine:
                 entry_reason=entry_result.entry_reason,
                 trend=ctx.trend,
                 validation=validation.flags,
-                reasons=validation.reasons or ["Validation failed."],
-            )
-
-        return TradePlan(
-            signal=direction.value,
-            entry=entry_result.entry,
-            entry_type=entry_result.entry_type,
-            stop_loss=sl_result.stop_loss,
-            take_profit=tp_result.take_profit,
-            risk_pips=risk_pips,
-            reward_pips=reward_pips,
-            risk_reward=tp_result.risk_reward,
-            confidence=confidence,
-            sl_reason=sl_result.sl_reason,
-            tp_reason=tp_result.tp_reason,
-            entry_reason=entry_result.entry_reason,
-            trend=ctx.trend,
-            validation=validation.flags,
-            reasons=[],
+                reasons=[],
+            ),
+            context=ctx,
         )
 
     @staticmethod

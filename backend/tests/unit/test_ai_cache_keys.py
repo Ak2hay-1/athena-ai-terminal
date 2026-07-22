@@ -12,7 +12,7 @@ def test_canonical_json_sorts_keys():
 
 def test_cache_key_is_stable_for_same_state():
     state = {
-        "symbol": "BTCUSDT",
+        "symbol": "XAUUSD",
         "timeframe": "1H",
         "trend": "Bullish",
         "confidence": 88,
@@ -25,8 +25,8 @@ def test_cache_key_is_stable_for_same_state():
 
 
 def test_cache_key_changes_when_state_changes():
-    base = {"symbol": "BTCUSDT", "confidence": 88}
-    other = {"symbol": "BTCUSDT", "confidence": 87}
+    base = {"symbol": "XAUUSD", "confidence": 88}
+    other = {"symbol": "XAUUSD", "confidence": 87}
     assert build_cache_key("trade_explanation", base) != build_cache_key(
         "trade_explanation",
         other,

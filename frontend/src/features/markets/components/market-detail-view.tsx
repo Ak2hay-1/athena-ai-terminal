@@ -2,37 +2,18 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MARKET_SYMBOLS, TIMEFRAMES, priceDigitsFor } from "@/constants/markets";
-import { PriceChart } from "@/features/markets/components/price-chart";
-import { useMarketWebSocket } from "@/hooks/use-market-websocket";
+import { IndicatorHelp } from "@/features/ai/components/indicator-help";
+import { BasicRangeChart } from "@/features/markets/components/chart/basic-range-chart";
 import { toNumber } from "@/lib/mappers";
-import { applyQuoteToCandle, formatPrice } from "@/lib/utils";
-import { getCandles, getQuotes } from "@/services/market";
+import { formatPrice } from "@/lib/utils";
+import { getLatestCandle, getQuotes } from "@/services/market";
 import { useAuthStore } from "@/store/auth-store";
 import { useDashboardStore } from "@/store/dashboard-store";
-import type { Candle } from "@/types";
-
-function mapCandle(
-  raw: Record<string, unknown>,
-  fallbacks: { symbol: string; timeframe: string },
-): Candle | null {
-  const close = toNumber(raw.close);
-  if (!close) return null;
-  return {
-    symbol: String(raw.symbol ?? fallbacks.symbol).toUpperCase(),
-    timeframe: String(raw.timeframe ?? fallbacks.timeframe).toUpperCase(),
-    time: String(raw.time ?? new Date().toISOString()),
-    open: toNumber(raw.open, close),
-    high: toNumber(raw.high, close),
-    low: toNumber(raw.low, close),
-    close,
-    tick_volume: Math.round(toNumber(raw.tick_volume ?? raw.tickVolume)),
-  };
-}
 
 export function MarketDetailView({ symbol }: { symbol: string }) {
   const router = useRouter();
@@ -40,20 +21,12 @@ export function MarketDetailView({ symbol }: { symbol: string }) {
   const timeframe = useDashboardStore((s) => s.timeframe);
   const setSymbol = useDashboardStore((s) => s.setSymbol);
   const setTimeframe = useDashboardStore((s) => s.setTimeframe);
-  const queryClient = useQueryClient();
   const normalized = symbol.toUpperCase();
   const enabled = Boolean(user);
 
   useEffect(() => {
     setSymbol(normalized);
   }, [normalized, setSymbol]);
-
-  const candlesQuery = useQuery({
-    queryKey: ["market", "candles", normalized, timeframe],
-    queryFn: () => getCandles(normalized, timeframe, 300),
-    enabled,
-    refetchInterval: 30_000,
-  });
 
   const quoteQuery = useQuery({
     queryKey: ["market", "quotes", normalized, timeframe],
@@ -63,58 +36,25 @@ export function MarketDetailView({ symbol }: { symbol: string }) {
     staleTime: 500,
   });
 
-  const onWsMessage = useCallback(
-    (payload: Record<string, unknown>) => {
-      if (payload.type !== "candle_update") return;
-      const updateSymbol = String(payload.symbol ?? "").toUpperCase();
-      const updateTf = String(payload.timeframe ?? "").toUpperCase();
-      if (updateSymbol !== normalized || updateTf !== timeframe.toUpperCase()) {
-        return;
-      }
-      const candleRaw = payload.candle as Record<string, unknown> | undefined;
-      const mapped = candleRaw
-        ? mapCandle(candleRaw, { symbol: normalized, timeframe })
-        : null;
-      if (!mapped) return;
-
-      queryClient.setQueryData<Candle[]>(
-        ["market", "candles", normalized, timeframe],
-        (current) => {
-          if (!current || current.length === 0) return [mapped];
-          const next = [...current];
-          const last = next[next.length - 1];
-          if (last && last.time === mapped.time) {
-            next[next.length - 1] = mapped;
-          } else {
-            next.push(mapped);
-            if (next.length > 400) next.shift();
-          }
-          return next;
-        },
-      );
-    },
-    [normalized, queryClient, timeframe],
-  );
-
-  const { connected } = useMarketWebSocket({
-    symbols: [normalized],
-    timeframe,
-    onMessage: onWsMessage,
+  const latestQuery = useQuery({
+    queryKey: ["market", "latest", normalized, timeframe],
+    queryFn: () => getLatestCandle(normalized, timeframe),
     enabled,
+    refetchInterval: 15_000,
   });
 
-  const candles = candlesQuery.data ?? [];
   const quote = quoteQuery.data?.[0];
-  const lastCandle = candles.at(-1) ?? null;
-  const liveCandle = useMemo(() => {
-    if (!lastCandle) return null;
-    if (quote?.mid) return applyQuoteToCandle(lastCandle, quote.mid);
-    return lastCandle;
-  }, [lastCandle, quote?.mid]);
-
-  const lastPrice = quote?.mid ?? liveCandle?.close ?? 0;
+  const lastPrice =
+    quote?.mid ??
+    (latestQuery.data ? toNumber(latestQuery.data.close) : 0);
   const digits = priceDigitsFor(normalized, lastPrice);
   const quotesLive = Boolean(quote?.mid);
+
+  const chartHref = useMemo(
+    () =>
+      `/markets/${normalized.toLowerCase()}/chart?tf=${encodeURIComponent(timeframe)}`,
+    [normalized, timeframe],
+  );
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-4">
@@ -130,12 +70,8 @@ export function MarketDetailView({ symbol }: { symbol: string }) {
             </p>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Badge tone={connected ? "bullish" : quotesLive ? "warning" : "bearish"}>
-              {connected
-                ? "Live stream"
-                : quotesLive
-                  ? "Live quotes"
-                  : "Stream reconnecting…"}
+            <Badge tone={quotesLive ? "bullish" : "warning"}>
+              {quotesLive ? "Live quotes" : "Waiting for quotes…"}
             </Badge>
             <span className="text-xs text-muted">
               {quote?.source === "tick" ? "Tick feed" : "Candle feed"} · {timeframe}
@@ -169,6 +105,13 @@ export function MarketDetailView({ symbol }: { symbol: string }) {
               </option>
             ))}
           </select>
+          <IndicatorHelp symbol={normalized} timeframe={timeframe} />
+          <Link
+            href={chartHref}
+            className="inline-flex h-9 items-center rounded-sm border border-primary/40 bg-primary/10 px-3 text-sm text-primary hover:bg-primary/20"
+          >
+            Open Chart
+          </Link>
           <Link
             href="/markets"
             className="inline-flex h-9 items-center rounded-sm border border-border px-3 text-sm text-muted hover:text-foreground"
@@ -180,20 +123,15 @@ export function MarketDetailView({ symbol }: { symbol: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>
-            {normalized} · {timeframe}
-          </CardTitle>
+          <CardTitle>{normalized} overview</CardTitle>
         </CardHeader>
         <CardContent>
-          {candles.length > 0 ? (
-            <PriceChart candles={candles} liveCandle={liveCandle} height={420} />
-          ) : (
-            <div className="flex h-[420px] items-center justify-center rounded-sm border border-dashed border-border text-sm text-muted">
-              {enabled
-                ? `No candle data for ${normalized} ${timeframe}`
-                : "Sign in to load live market charts"}
-            </div>
-          )}
+          <BasicRangeChart
+            symbol={normalized}
+            chartTf={timeframe}
+            enabled={enabled}
+            height={300}
+          />
         </CardContent>
       </Card>
     </div>

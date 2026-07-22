@@ -14,6 +14,7 @@ from sqlalchemy import Index
 from sqlalchemy import JSON
 from sqlalchemy import Numeric
 from sqlalchemy import String
+from sqlalchemy import Boolean
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 
@@ -42,6 +43,13 @@ class Recommendation(BaseModel):
             "idx_recommendation_symbol_timeframe",
             "symbol",
             "timeframe",
+        ),
+        Index(
+            "idx_recommendation_symbol_tf_signal_created",
+            "symbol",
+            "timeframe",
+            "signal",
+            "created_at",
         ),
         CheckConstraint(
             "confidence >= 0 AND confidence <= 100",
@@ -163,6 +171,97 @@ class Recommendation(BaseModel):
         server_default="{}",
     )
 
+    confidence_breakdown: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+
+    institutional_checklist: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+
+    market_heatmap: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+
+    entry_zone: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+
+    # ==========================================================
+    # Trade Probability (deterministic)
+    # ==========================================================
+
+    trade_probability: Mapped[int] = mapped_column(
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    similar_trade_count: Mapped[int] = mapped_column(
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    historical_win_rate: Mapped[int] = mapped_column(
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    expected_rr: Mapped[Decimal] = mapped_column(
+        Numeric(18, 8),
+        nullable=False,
+        default=Decimal("0"),
+        server_default="0",
+    )
+
+    expected_hold_time: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="",
+        server_default="",
+    )
+
+    trade_quality: Mapped[int] = mapped_column(
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    quality_grade: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="",
+        server_default="",
+    )
+
+    historical_insights: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+
+    probability_detail: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+
     # ==========================================================
     # AI Details
     # ==========================================================
@@ -177,6 +276,126 @@ class Recommendation(BaseModel):
         JSON,
         nullable=False,
         default=list,
+    )
+
+    # ==========================================================
+    # Continuous Learning audit (write-once at create)
+    # ==========================================================
+
+    engine_version: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="1.0.0",
+        server_default="1.0.0",
+    )
+
+    learning_version: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="1.0.0",
+        server_default="1.0.0",
+    )
+
+    weight_version: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="baseline",
+        server_default="baseline",
+    )
+
+    indicator_version: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="1.0.0",
+        server_default="1.0.0",
+    )
+
+    strategy_version: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="1.0.0",
+        server_default="1.0.0",
+    )
+
+    market_regime: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+    )
+
+    # ==========================================================
+    # Institutional qualification desk
+    # ==========================================================
+
+    setup_quality: Mapped[int] = mapped_column(
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    setup_quality_grade: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="",
+        server_default="",
+    )
+
+    setup_quality_components: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
+
+    scanner_group: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="no_trade",
+        server_default="no_trade",
+    )
+
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="NEW",
+        server_default="NEW",
+        index=True,
+    )
+
+    rejection_checklist: Mapped[list] = mapped_column(
+        JSON,
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
+
+    qualification_score: Mapped[int] = mapped_column(
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+
+    trend_strength: Mapped[float] = mapped_column(
+        nullable=False,
+        default=0.0,
+        server_default="0",
+    )
+
+    correlated: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    correlation_note: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        default="",
+        server_default="",
+    )
+
+    parent_recommendation_id: Mapped[int | None] = mapped_column(
+        nullable=True,
     )
 
     @property

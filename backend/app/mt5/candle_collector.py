@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import UTC
 from datetime import datetime
 
-import MetaTrader5 as mt5
+from app.mt5.sdk import mt5
 from sqlalchemy.orm import Session
 
 from app.core.logger import logger
@@ -37,8 +37,12 @@ class CandleCollector:
         symbol: str,
         timeframe: int,
         timeframe_name: str,
-        count: int = 500,
+        count: int | None = None,
     ) -> int:
+        from app.core.settings import settings
+
+        if count is None:
+            count = max(1, int(settings.MARKET_COLLECTOR_BARS))
 
         rates = mt5_client.copy_rates(
             symbol=symbol,
@@ -122,13 +126,11 @@ class CandleCollector:
 
             return 0
 
-        self.repository.bulk_create(
+        inserted = self.repository.bulk_create(
             new_candles,
         )
 
         self.db.commit()
-
-        inserted = len(new_candles)
 
         logger.info(
             "%s %s -> %d new candles",
@@ -147,6 +149,7 @@ class CandleCollector:
         self,
         symbol: str,
         timeframe: str,
+        count: int | None = None,
     ) -> int:
         """
         Collect candles for any supported timeframe.
@@ -170,7 +173,7 @@ class CandleCollector:
                 f"Unsupported timeframe: {timeframe}"
             )
 
-        return collector(symbol)
+        return collector(symbol, count=count)
 
     # ==========================================================
     # Timeframe Helpers
@@ -179,76 +182,90 @@ class CandleCollector:
     def collect_m1(
         self,
         symbol: str,
+        count: int | None = None,
     ) -> int:
 
         return self._collect(
             symbol,
             mt5.TIMEFRAME_M1,
             "M1",
+            count=count,
         )
 
     def collect_m5(
         self,
         symbol: str,
+        count: int | None = None,
     ) -> int:
 
         return self._collect(
             symbol,
             mt5.TIMEFRAME_M5,
             "M5",
+            count=count,
         )
 
     def collect_m15(
         self,
         symbol: str,
+        count: int | None = None,
     ) -> int:
 
         return self._collect(
             symbol,
             mt5.TIMEFRAME_M15,
             "M15",
+            count=count,
         )
 
     def collect_m30(
         self,
         symbol: str,
+        count: int | None = None,
     ) -> int:
 
         return self._collect(
             symbol,
             mt5.TIMEFRAME_M30,
             "M30",
+            count=count,
         )
 
     def collect_h1(
         self,
         symbol: str,
+        count: int | None = None,
     ) -> int:
 
         return self._collect(
             symbol,
             mt5.TIMEFRAME_H1,
             "H1",
+            count=count,
         )
 
     def collect_h4(
         self,
         symbol: str,
+        count: int | None = None,
     ) -> int:
 
         return self._collect(
             symbol,
             mt5.TIMEFRAME_H4,
             "H4",
+            count=count,
         )
 
     def collect_d1(
         self,
         symbol: str,
+        count: int | None = None,
     ) -> int:
 
         return self._collect(
             symbol,
             mt5.TIMEFRAME_D1,
             "D1",
+            count=count,
         )

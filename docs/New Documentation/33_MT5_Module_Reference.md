@@ -564,7 +564,7 @@ collect_xauusd_h1()
 
 collect_forex()
 
-collect_crypto()
+collect_metals()
 
 collect_indices()
 ```

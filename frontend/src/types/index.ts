@@ -16,6 +16,82 @@ export type MarketSession =
   | "New York"
   | "Overlap";
 
+export interface ConfidenceBreakdown {
+  trend: number;
+  momentum: number;
+  structure: number;
+  liquidity: number;
+  news: number;
+  risk: number;
+  trendMax: number;
+  momentumMax: number;
+  structureMax: number;
+  liquidityMax: number;
+  newsMax: number;
+  riskMax: number;
+}
+
+export interface ChecklistItem {
+  name: string;
+  passed: boolean;
+}
+
+export interface MarketHeatmap {
+  trend: number;
+  momentum: number;
+  structure: number;
+  liquidity: number;
+  volatility: number;
+  news: number;
+  risk: number;
+}
+
+export interface EntryZone {
+  aggressive: number;
+  optimalLow: number;
+  optimalHigh: number;
+  conservative: number;
+}
+
+export interface TradeProbability {
+  probability: number;
+  confidenceCategory: string;
+  similarTrades: number;
+  historicalWinRate: number;
+  expectedRr: number;
+  expectedHoldTime: string;
+  historicalAverageProfit: number;
+  historicalAverageLoss: number;
+}
+
+export interface SimilarRecommendation {
+  id: number;
+  symbol: string;
+  timeframe: string;
+  signal: string;
+  confidence: number;
+  trend: string;
+  riskReward: number;
+  similarity: number;
+  outcomeLabel?: string | null;
+  pnlProxy?: number | null;
+  tradeProbability?: number | null;
+  tradeQuality?: number | null;
+  qualityGrade?: string | null;
+  createdAt?: string | null;
+}
+
+export interface MetricComparison {
+  a: string | number | null;
+  b: string | number | null;
+  winner?: string | null;
+}
+
+export interface TradeComparison {
+  winner: string;
+  comparison: Record<string, MetricComparison>;
+}
+
 export interface Recommendation {
   id: string;
   symbol: string;
@@ -33,10 +109,41 @@ export interface Recommendation {
   slReason?: string;
   tpReason?: string;
   validation?: Record<string, boolean>;
+  confidenceBreakdown?: ConfidenceBreakdown;
+  checklist?: ChecklistItem[];
+  heatmap?: MarketHeatmap;
+  entryZone?: EntryZone;
+  tradeProbability?: number;
+  similarTradeCount?: number;
+  historicalWinRate?: number;
+  expectedRr?: number;
+  expectedHoldTime?: string;
+  tradeQuality?: number;
+  qualityGrade?: string;
+  historicalInsights?: string[];
+  probabilityDetail?: TradeProbability;
   timeframe: string;
   reasons: string[];
   confluence?: number;
   createdAt: string;
+}
+
+/** Latest signal for one timeframe in the overall scenario strip. */
+export interface TimeframeSignalSnapshot {
+  timeframe: string;
+  signal: Signal;
+  confidence: number;
+  trend: Trend;
+  confluence: number;
+  recommendationId?: number | null;
+  createdAt?: string | null;
+}
+
+/** Best setup + per-TF snapshot for a symbol. */
+export interface SymbolScenario {
+  symbol: string;
+  best: Recommendation | null;
+  byTimeframe: TimeframeSignalSnapshot[];
 }
 
 export interface WatchlistItem {
@@ -47,6 +154,8 @@ export interface WatchlistItem {
   confidence: number;
   trend: Trend;
   referencePrice?: number;
+  setupQuality?: number;
+  scannerGroup?: string;
 }
 
 export interface Position {
@@ -65,6 +174,7 @@ export interface MarketStatus {
   session: MarketSession;
   volatility: "Low" | "Medium" | "High";
   marketOpen: boolean;
+  marketReason: string;
   score: number;
   feedConnected: boolean;
   wsConnected: boolean;
@@ -111,16 +221,79 @@ export interface ActivityEvent {
   tone: "ai" | "market" | "system" | "trade";
 }
 
+export interface ScannerScoreBreakdown {
+  base: number;
+  quality: number;
+  probability: number;
+  confluence: number;
+  momentumAlign: number;
+  freshness: number;
+  session: number;
+  marketWatch: number;
+  penalties: number;
+}
+
 export interface ScannerOpportunity {
   id: string;
   symbol: string;
   signal: Signal;
+  /** Server scanner rank score (0–100). Prefer this over confidence for ranking. */
+  score: number;
+  /** Model confidence (not inflated by momentum). */
   confidence: number;
+  scoreBreakdown?: ScannerScoreBreakdown;
   timeframe: string;
   session: MarketSession;
+  reasons: string[];
+  /** Legacy single-line reason for preview cards. */
   reason: string;
   price?: number;
   changePercent?: number;
+  entry?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  riskReward?: number;
+  trend?: string;
+  confluence?: number;
+  tradeQuality?: number;
+  tradeProbability?: number;
+  setupQuality?: number;
+  setupQualityGrade?: string;
+  scannerGroup?: "elite" | "high_quality" | "watchlist" | "no_trade" | string;
+  rejectionChecklist?: Array<{
+    name: string;
+    passed: boolean;
+    detail?: string;
+    mandatory?: boolean;
+  }>;
+  lifecycleState?: string;
+  correlated?: boolean;
+  correlationNote?: string;
+  marketWatchTag?: string;
+  alsoHotOn?: string[];
+  updatedAt?: string;
+  stalenessMs?: number;
+  stale?: boolean;
+  recommendationId?: number;
+}
+
+export interface ScannerGroupCounts {
+  elite: number;
+  highQuality: number;
+  watchlist: number;
+  noTrade: number;
+}
+
+export interface ScannerMeta {
+  timeframe: string;
+  universeSize: number;
+  opportunityCount: number;
+  generatedAt: string;
+  lastMarketWatchScanAt?: string | null;
+  lastMarketWatchScanAgeMs?: number | null;
+  staleThresholdMinutes: number;
+  symbolsScanned: string[];
+  groupCounts?: ScannerGroupCounts;
 }
 
 export interface HealthStatus {

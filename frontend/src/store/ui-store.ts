@@ -7,12 +7,14 @@ interface UiState {
   mobileNavOpen: boolean;
   rightPanel: RightPanelMode;
   notificationsOpen: boolean;
+  searchOpen: boolean;
   toggleSidebar: () => void;
   setSidebarCollapsed: (value: boolean) => void;
   setMobileNavOpen: (value: boolean) => void;
   setRightPanel: (value: RightPanelMode) => void;
   toggleRightPanel: () => void;
   setNotificationsOpen: (value: boolean) => void;
+  setSearchOpen: (value: boolean) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -20,6 +22,7 @@ export const useUiStore = create<UiState>((set) => ({
   mobileNavOpen: false,
   rightPanel: "assistant",
   notificationsOpen: false,
+  searchOpen: false,
   toggleSidebar: () =>
     set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
@@ -30,4 +33,5 @@ export const useUiStore = create<UiState>((set) => ({
       rightPanel: state.rightPanel === "assistant" ? "hidden" : "assistant",
     })),
   setNotificationsOpen: (notificationsOpen) => set({ notificationsOpen }),
+  setSearchOpen: (searchOpen) => set({ searchOpen }),
 }));

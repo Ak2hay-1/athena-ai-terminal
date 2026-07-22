@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import MetaTrader5 as mt5
+from app.mt5.sdk import mt5
 
 from app.core.logger import get_logger
 from app.mt5.constants import DEFAULT_TIMEOUT

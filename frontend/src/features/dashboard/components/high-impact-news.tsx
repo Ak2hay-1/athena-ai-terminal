@@ -17,16 +17,31 @@ function sentimentTone(
   return "neutral";
 }
 
+function feedBadge(
+  refreshing: boolean,
+  dataUpdatedAt: number,
+): { label: string; tone: "bullish" | "warning" | "neutral" } {
+  if (refreshing) return { label: "Syncing", tone: "warning" };
+  if (!dataUpdatedAt) return { label: "Idle", tone: "neutral" };
+  const ageMs = Date.now() - dataUpdatedAt;
+  if (ageMs < 60_000) return { label: "Live", tone: "bullish" };
+  return { label: "Stale", tone: "warning" };
+}
+
 export function HighImpactNews({
   items,
   context,
   calendar = [],
   refreshing = false,
+  dataUpdatedAt = 0,
+  symbol,
 }: {
   items: NewsHeadline[];
   context?: NewsContext;
   calendar?: NewsHeadline[];
   refreshing?: boolean;
+  dataUpdatedAt?: number;
+  symbol?: string;
 }) {
   const highImpact = items.filter((item) => item.impact === "High");
   const feed = (highImpact.length > 0 ? highImpact : items).slice(0, 6);
@@ -40,6 +55,9 @@ export function HighImpactNews({
       symbols: [] as string[],
     }));
   const calendarPreview = upcoming.length > 0 ? upcoming : calendar.slice(0, 3);
+  const badge = feedBadge(refreshing, dataUpdatedAt);
+  const lastSynced =
+    dataUpdatedAt > 0 ? relativeTime(new Date(dataUpdatedAt).toISOString()) : null;
 
   return (
     <Card className="overflow-hidden">
@@ -47,19 +65,24 @@ export function HighImpactNews({
         <div>
           <div className="flex items-center gap-2">
             <CardTitle>News & Calendar</CardTitle>
-            <Badge tone={refreshing ? "warning" : "bullish"}>
-              <Radio className={cn("mr-1 h-3 w-3", refreshing && "animate-pulse")} />
-              {refreshing ? "Syncing" : "Live"}
+            <Badge tone={badge.tone}>
+              <Radio
+                className={cn("mr-1 h-3 w-3", refreshing && "animate-pulse")}
+              />
+              {badge.label}
             </Badge>
           </div>
           <p className="mt-1 text-xs text-muted">
-            Polls every 30s · high-impact windows affect risk
+            Polls every 30s
+            {lastSynced ? ` · updated ${lastSynced}` : ""}
           </p>
         </div>
         {context ? (
           <Badge tone={sentimentTone(context.sentiment)}>
             {context.sentiment}
-            {context.score !== 0 ? ` · ${context.score > 0 ? "+" : ""}${context.score}` : ""}
+            {context.score !== 0
+              ? ` · ${context.score > 0 ? "+" : ""}${context.score}`
+              : ""}
           </Badge>
         ) : null}
       </CardHeader>
@@ -93,7 +116,10 @@ export function HighImpactNews({
             Latest
           </p>
           {feed.length === 0 ? (
-            <p className="text-sm text-muted">No news events loaded.</p>
+            <p className="text-sm text-muted">
+              No headlines for {symbol ?? "this pair"} — calendar below when
+              available.
+            </p>
           ) : (
             feed.map((item) => (
               <div
@@ -104,14 +130,23 @@ export function HighImpactNews({
                   <Badge tone={item.impact === "High" ? "warning" : "default"}>
                     {item.impact}
                   </Badge>
-                  <span className="text-[11px] text-muted-foreground">{item.time}</span>
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                    {item.publishedAt
+                      ? relativeTime(item.publishedAt)
+                      : item.time}
+                  </span>
                 </div>
-                <p className="mt-2 text-sm leading-snug text-zinc-200">{item.title}</p>
+                <p className="mt-2 text-sm leading-snug text-zinc-200">
+                  {item.title}
+                </p>
                 {item.summary ? (
-                  <p className="mt-1 line-clamp-2 text-[11px] text-muted">{item.summary}</p>
+                  <p className="mt-1 line-clamp-2 text-[11px] text-muted">
+                    {item.summary}
+                  </p>
                 ) : null}
                 <p className="mt-1 text-[11px] text-muted">
                   {item.symbols.join(" · ") || "Market"}
+                  {item.source ? ` · ${item.source}` : ""}
                 </p>
               </div>
             ))

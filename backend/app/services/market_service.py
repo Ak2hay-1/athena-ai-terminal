@@ -19,6 +19,7 @@ from app.models.market_candle import MarketCandle
 from app.repositories.market_repository import MarketRepository
 from app.repositories.recommendation_repository import RecommendationRepository
 from app.schemas.market import (
+    MarketBackfillResult,
     MarketCandleCreate,
     MarketCandleRead,
     MarketQuote,
@@ -158,6 +159,15 @@ class MarketService(BaseService):
         timeframe: str,
     ) -> MarketCandleRead:
 
+        from app.core.settings import settings
+
+        if settings.CACHE_ENABLED:
+            from app.cache import cache_manager
+
+            payload = cache_manager.get_latest_candle(symbol, timeframe)
+            if payload is not None:
+                return MarketCandleRead.model_validate(payload)
+
         candle = self.market.get_latest(
             symbol,
             timeframe,
@@ -181,12 +191,37 @@ class MarketService(BaseService):
         symbol: str,
         timeframe: str,
         limit: int = 500,
+        before: datetime | None = None,
     ) -> list[MarketCandleRead]:
+        """
+        Serve candles through CacheManager (RAM → DB → MT5 gap sync).
+
+        Forming live bars are never returned as immutable history.
+        """
+
+        from app.core.settings import settings
+
+        if settings.CACHE_ENABLED:
+            from app.cache import cache_manager
+
+            payloads = cache_manager.get_candles(
+                symbol,
+                timeframe,
+                limit=limit,
+                before=before,
+                sync_if_stale=before is None,
+                trigger_preload=before is None,
+            )
+            return [
+                MarketCandleRead.model_validate(payload)
+                for payload in payloads
+            ]
 
         candles = self.market.get_latest_candles(
             symbol,
             timeframe,
             limit,
+            before=before,
         )
 
         return [
@@ -237,11 +272,11 @@ class MarketService(BaseService):
         timeframe: str = "M1",
     ) -> list[MarketQuote]:
         """
-        Return live mid quotes from MT5 ticks, falling back to
-        the latest candle close when a tick is unavailable.
+        Return live mid quotes from the live market cache (Redis /
+        in-memory, fed by the tick engine), falling back to direct MT5
+        only when the engine is disabled, then to the latest candle
+        close.
         """
-
-        from app.market.adapter import market as mt5_market
 
         quotes: list[MarketQuote] = []
 
@@ -250,19 +285,14 @@ class MarketService(BaseService):
             if not symbol:
                 continue
 
-            tick = None
-            try:
-                tick = mt5_market.tick(symbol)
-            except Exception:
-                self.logger.exception(
-                    "Tick fetch failed for %s",
-                    symbol,
-                )
+            tick = self._live_tick(symbol)
 
             if tick is not None:
                 bid = float(tick.get("bid") or 0)
                 ask = float(tick.get("ask") or 0)
-                mid = (bid + ask) / 2 if bid and ask else bid or ask
+                mid = float(tick.get("mid") or 0)
+                if not mid:
+                    mid = (bid + ask) / 2 if bid and ask else bid or ask
                 if mid:
                     quotes.append(
                         MarketQuote(
@@ -270,12 +300,7 @@ class MarketService(BaseService):
                             bid=bid,
                             ask=ask,
                             mid=mid,
-                            time=datetime.fromtimestamp(
-                                int(tick.get("time") or 0),
-                                tz=timezone.utc,
-                            )
-                            if tick.get("time")
-                            else None,
+                            time=self._parse_tick_time(tick.get("time")),
                             source="tick",
                         )
                     )
@@ -302,6 +327,54 @@ class MarketService(BaseService):
 
         return quotes
 
+    def _live_tick(self, symbol: str) -> dict | None:
+        """Latest tick from the live cache, or MT5 as legacy fallback."""
+
+        from app.core.settings import settings
+        from app.marketdata.live_cache import live_market_cache
+
+        cached = live_market_cache.get_tick(symbol)
+        if cached is not None:
+            return cached
+
+        if settings.MARKET_ENGINE_ENABLED:
+            return None
+
+        try:
+            from app.market.adapter import market as mt5_market
+
+            tick = mt5_market.tick(symbol)
+        except Exception:
+            self.logger.exception("Tick fetch failed for %s", symbol)
+            return None
+
+        if tick is None:
+            return None
+
+        raw_time = tick.get("time")
+        return {
+            "bid": tick.get("bid"),
+            "ask": tick.get("ask"),
+            "mid": None,
+            "time": datetime.fromtimestamp(
+                int(raw_time),
+                tz=timezone.utc,
+            ).isoformat()
+            if raw_time
+            else None,
+        }
+
+    @staticmethod
+    def _parse_tick_time(value) -> datetime | None:
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value
+        try:
+            return datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+
     # ======================================================
     # Statistics
     # ======================================================
@@ -322,6 +395,106 @@ class MarketService(BaseService):
         )
 
     # ======================================================
+    # Deep MT5 Backfill
+    # ======================================================
+
+    def backfill_candles(
+        self,
+        symbol: str,
+        timeframe: str,
+        count: int | None = None,
+    ) -> MarketBackfillResult:
+        """
+        Pull as many bars as allowed from MT5 into Postgres.
+        """
+        from app.core.exceptions import MT5Exception
+        from app.core.settings import settings
+        from app.mt5.candle_collector import CandleCollector
+        from app.mt5.client import mt5_client
+
+        symbol = symbol.upper()
+        timeframe = timeframe.upper()
+
+        if not mt5_client.initialize():
+            raise MT5Exception(
+                "MetaTrader 5 is not connected. Set MT5_LOGIN, MT5_PASSWORD, "
+                "MT5_SERVER (and MT5_PATH if needed) in backend/.env, open the "
+                "MT5 terminal on Windows, then restart the API."
+            )
+
+        max_bars = max(1, int(settings.MARKET_BACKFILL_BARS))
+        requested = max_bars if count is None else max(1, min(int(count), max_bars))
+
+        collector = CandleCollector(self.db)
+        # Chunk large requests so a single MT5 call stays within broker limits.
+        chunk = min(requested, max(1, int(settings.MARKET_COLLECTOR_BARS)))
+        remaining = requested
+        inserted_total = 0
+
+        while remaining > 0:
+            pull = min(chunk, remaining)
+            inserted_total += collector.collect(
+                symbol,
+                timeframe,
+                count=pull,
+            )
+            # After first deep pull, further chunks from pos=0 return the same
+            # newest bars; stop once one pass completes.
+            remaining = 0
+
+        stats = self.market.get_statistics(symbol, timeframe)
+        candle_count = int(stats.get("candle_count") or 0)
+
+        if inserted_total == 0 and candle_count == 0:
+            raise MT5Exception(
+                f"No candle data returned from MT5 for {symbol} {timeframe}. "
+                "Confirm the symbol matches your broker Market Watch name "
+                "(e.g. GBPUSD vs GBPUSDm) and that history is available."
+            )
+
+        return MarketBackfillResult(
+            symbol=symbol,
+            timeframe=timeframe,
+            requested=requested,
+            inserted=inserted_total,
+            candle_count=candle_count,
+            oldest=stats.get("first_candle"),
+            newest=stats.get("last_candle"),
+        )
+
+    def maybe_startup_backfill(
+        self,
+        symbol: str,
+        timeframe: str,
+    ) -> MarketBackfillResult | None:
+        """
+        If DB depth is below threshold, run a one-shot deep backfill.
+        """
+        from app.core.settings import settings
+
+        if not settings.MARKET_STARTUP_BACKFILL_ENABLED:
+            return None
+
+        stats = self.market.get_statistics(symbol, timeframe)
+        count = int(stats.get("candle_count") or 0)
+        threshold = max(0, int(settings.MARKET_STARTUP_BACKFILL_THRESHOLD))
+        if count >= threshold:
+            return None
+
+        self.logger.info(
+            "Startup backfill %s %s (have=%d threshold=%d)",
+            symbol,
+            timeframe,
+            count,
+            threshold,
+        )
+        return self.backfill_candles(
+            symbol,
+            timeframe,
+            count=settings.MARKET_BACKFILL_BARS,
+        )
+
+    # ======================================================
     # Analyze Latest Market Data
     # ======================================================
 
@@ -330,6 +503,8 @@ class MarketService(BaseService):
         symbol: str,
         timeframe: str,
         limit: int = 500,
+        *,
+        explain_with_ai: bool = True,
     ):
         """
         Analyze the latest market candles and persist
@@ -394,6 +569,7 @@ class MarketService(BaseService):
                 news_context=news_context,
                 higher_timeframes=higher_timeframes,
                 weights=weights,
+                explain_with_ai=explain_with_ai,
             )
 
             self.commit()
@@ -417,6 +593,52 @@ class MarketService(BaseService):
             recommendation.signal,
             recommendation.confidence,
         )
+
+        try:
+            from app.services.websocket_broadcast import broadcast_scanner_update
+
+            signal = recommendation.signal
+            if hasattr(signal, "value"):
+                signal = signal.value
+            broadcast_scanner_update(
+                symbol=symbol,
+                timeframe=timeframe,
+                change_type="recommendation",
+                opportunity={
+                    "symbol": symbol.upper(),
+                    "timeframe": timeframe.upper(),
+                    "signal": str(signal),
+                    "confidence": int(recommendation.confidence or 0),
+                    "entry": float(recommendation.entry)
+                    if getattr(recommendation, "entry", None) is not None
+                    else None,
+                    "stop_loss": float(recommendation.stop_loss)
+                    if getattr(recommendation, "stop_loss", None) is not None
+                    else None,
+                    "take_profit": float(recommendation.take_profit)
+                    if getattr(recommendation, "take_profit", None) is not None
+                    else None,
+                    "risk_reward": float(getattr(recommendation, "risk_reward", 0) or 0),
+                    "trend": str(getattr(recommendation, "trend", "") or ""),
+                },
+            )
+        except Exception:
+            self.logger.exception(
+                "scanner_update broadcast failed for %s %s",
+                symbol,
+                timeframe,
+            )
+
+        try:
+            from app.trading.auto_trade import AutoTradeService
+
+            AutoTradeService(self.db).process(recommendation)
+        except Exception:
+            self.logger.exception(
+                "Auto-trade processing failed for %s %s",
+                symbol,
+                timeframe,
+            )
 
         return recommendation
 

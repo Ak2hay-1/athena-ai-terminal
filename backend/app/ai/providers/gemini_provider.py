@@ -57,7 +57,7 @@ class GeminiProvider(AIProvider):
         try:
             self._get_client()
             return True
-        except Exception:
+        except Exception as exc:
             return False
 
     # ------------------------------------------------------------------
@@ -290,6 +290,7 @@ class GeminiProvider(AIProvider):
                 raise RuntimeError("GEMINI_API_KEY is not configured.")
             from google import genai
             from google.genai import types
+
 
             retry_options = types.HttpRetryOptions(
                 initial_delay=1.0,

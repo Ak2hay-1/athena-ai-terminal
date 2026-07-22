@@ -4,7 +4,7 @@ MetaTrader 5 constants.
 
 from __future__ import annotations
 
-import MetaTrader5 as mt5
+from app.mt5.sdk import mt5
 
 DEFAULT_TIMEOUT = 60_000
 

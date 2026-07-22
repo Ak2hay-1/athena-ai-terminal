@@ -15,17 +15,11 @@ export function RegisterPage() {
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError('')
-    // #region agent log
-    fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'300484'},body:JSON.stringify({sessionId:'300484',runId:'pre-fix',hypothesisId:'E',location:'_legacy/RegisterPage.tsx:onSubmit',message:'legacy register submit',data:{usernameLen:form.username.length,passwordLen:form.password.length,href:window.location.href},timestamp:Date.now()})}).catch(()=>{})
-    // #endregion
 
     try {
       await register(form)
       navigate('/login')
     } catch (err) {
-      // #region agent log
-      fetch('http://127.0.0.1:7628/ingest/f3b6af10-4b61-49ec-8948-6d6f0fadcabb',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'300484'},body:JSON.stringify({sessionId:'300484',runId:'pre-fix',hypothesisId:'A',location:'_legacy/RegisterPage.tsx:onSubmit',message:'legacy register catch',data:{error:err instanceof Error?err.message.slice(0,300):String(err)},timestamp:Date.now()})}).catch(()=>{})
-      // #endregion
       setError('Registration failed')
     }
   }

@@ -69,7 +69,7 @@ class _MemoryCache:
 
 def _context() -> MarketContext:
     return MarketContext(
-        symbol="BTCUSDT",
+        symbol="XAUUSD",
         timeframe="1H",
         trend="Bullish",
         trade_candidate=TradeCandidate(
@@ -124,3 +124,121 @@ def test_factory_resolves_local():
 
     provider = resolve_provider("local")
     assert provider.name == "local"
+
+
+def test_chat_redirects_decision_request(monkeypatch):
+    service = AIService()
+    provider = _FakeProvider()
+    monkeypatch.setattr(ai_service_module, "get_primary_provider", lambda: provider)
+    monkeypatch.setattr(ai_service_module, "get_fallback_provider", lambda _p=None: None)
+
+    from app.ai.schemas.context import ChatMessage
+
+    result = service.chat(
+        [ChatMessage(role="user", content="Should I BUY XAUUSD right now?")]
+    )
+    assert result.success is True
+    assert result.redirected is True
+    assert provider.calls == 0
+    assert "deterministic engine" in result.reply.lower()
+
+
+def test_explain_indicator_and_cache(monkeypatch):
+    service = AIService()
+    cache = _MemoryCache()
+    # Override memory cache keying for indicator task
+    cache.get = lambda task, state, model: (  # type: ignore[method-assign]
+        model.model_validate(cache.store[f"{task}:{state.get('topic')}"])
+        if f"{task}:{state.get('topic')}" in cache.store
+        else None
+    )
+    cache.set = lambda task, state, value: cache.store.__setitem__(  # type: ignore[method-assign]
+        f"{task}:{state.get('topic')}",
+        value.model_dump(),
+    )
+
+    provider = _FakeProvider(
+        text=(
+            '{"topic":"fvg","summary":"Fair value gap",'
+            '"how_it_works":["Imbalance"],"athena_usage":"Confluence",'
+            '"pitfalls":["Chasing"]}'
+        )
+    )
+    monkeypatch.setattr(ai_service_module, "response_cache", cache)
+    monkeypatch.setattr(ai_service_module, "get_primary_provider", lambda: provider)
+    monkeypatch.setattr(ai_service_module, "get_fallback_provider", lambda _p=None: None)
+    monkeypatch.setattr(ai_service_module, "settings", type("S", (), {"AI_MAX_RETRIES": 1})())
+
+    first = service.explain_indicator("fvg", _context())
+    second = service.explain_indicator("fvg", _context())
+    assert first.success is True
+    assert first.summary == "Fair value gap"
+    assert second.cached is True
+    assert provider.calls == 1
+
+
+def test_teach_strategy_parses_lesson(monkeypatch):
+    service = AIService()
+    cache = _MemoryCache()
+    cache.get = lambda task, state, model: None  # type: ignore[method-assign]
+    cache.set = lambda task, state, value: None  # type: ignore[method-assign]
+    provider = _FakeProvider(
+        text=(
+            '{"topic":"smc","title":"SMC","lesson":"Structure first",'
+            '"key_points":["BOS"],"exercise":"Mark BOS",'
+            '"common_mistakes":["FOMO"]}'
+        )
+    )
+    monkeypatch.setattr(ai_service_module, "response_cache", cache)
+    monkeypatch.setattr(ai_service_module, "get_primary_provider", lambda: provider)
+    monkeypatch.setattr(ai_service_module, "get_fallback_provider", lambda _p=None: None)
+    monkeypatch.setattr(ai_service_module, "settings", type("S", (), {"AI_MAX_RETRIES": 1})())
+
+    result = service.teach_strategy("smc")
+    assert result.success is True
+    assert result.title == "SMC"
+    assert "Structure" in result.lesson
+
+
+def test_summarize_session_parses(monkeypatch):
+    service = AIService()
+    cache = _MemoryCache()
+    cache.get = lambda task, state, model: None  # type: ignore[method-assign]
+    cache.set = lambda task, state, value: None  # type: ignore[method-assign]
+    provider = _FakeProvider(
+        text=(
+            '{"summary":"Quiet session","highlights":["One FVG"],'
+            '"risk_notes":["News"],"lessons":["Wait"]}'
+        )
+    )
+    monkeypatch.setattr(ai_service_module, "response_cache", cache)
+    monkeypatch.setattr(ai_service_module, "get_primary_provider", lambda: provider)
+    monkeypatch.setattr(ai_service_module, "get_fallback_provider", lambda _p=None: None)
+    monkeypatch.setattr(ai_service_module, "settings", type("S", (), {"AI_MAX_RETRIES": 1})())
+
+    result = service.summarize_session(
+        {"mode": "session", "symbol": "XAUUSD", "total_recommendations": 3}
+    )
+    assert result.success is True
+    assert result.summary == "Quiet session"
+    assert result.highlights == ["One FVG"]
+
+
+def test_chat_stream_yields_tokens(monkeypatch):
+    service = AIService()
+
+    class _StreamProvider(_FakeProvider):
+        def chat_stream(self, *, messages, system=None):
+            yield "Hel"
+            yield "lo"
+
+    provider = _StreamProvider()
+    monkeypatch.setattr(ai_service_module, "get_primary_provider", lambda: provider)
+    monkeypatch.setattr(ai_service_module, "get_fallback_provider", lambda _p=None: None)
+
+    from app.ai.schemas.context import ChatMessage
+
+    chunks = list(
+        service.chat_stream([ChatMessage(role="user", content="Explain trend")])
+    )
+    assert "".join(chunks) == "Hello"
